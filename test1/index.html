@@ -1,2 +1,84 @@
-Hello! This is chuaiGM's web game site
-11111111111111
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>文件夹选择</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            background-color: #f4f4f4;
+        }
+
+        .container {
+            text-align: center;
+        }
+
+        #fileList {
+            margin-top: 20px;
+            padding: 10px;
+            border: 1px solid #ddd;
+            width: 300px;
+            height: 200px;
+            overflow-y: scroll;
+            background-color: #fff;
+        }
+
+        button {
+            padding: 10px 20px;
+            font-size: 16px;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <button id="openDialog">选择文件夹</button>
+    <div id="fileList"></div>
+</div>
+
+<input type="file" id="fileInput" style="display: none;" webkitdirectory directory multiple>
+
+<script>
+    // 获取元素
+    const openDialogButton = document.getElementById("openDialog");
+    const fileInput = document.getElementById("fileInput");
+    const fileListDiv = document.getElementById("fileList");
+
+    // 监听按钮点击，触发文件选择对话框
+    openDialogButton.addEventListener("click", function() {
+        fileInput.click();
+    });
+
+    // 监听文件选择变化
+    fileInput.addEventListener("change", function(event) {
+        const files = event.target.files;
+        if (files.length > 0) {
+            displayFileList(files);
+        }
+    });
+
+    // 显示文件列表
+    function displayFileList(files) {
+        fileListDiv.innerHTML = ''; // 清空当前显示的列表
+        const list = document.createElement("ul");
+
+        for (let i = 0; i < files.length; i++) {
+            const listItem = document.createElement("li");
+            listItem.textContent = files[i].name;
+            list.appendChild(listItem);
+        }
+
+        fileListDiv.appendChild(list);
+    }
+</script>
+
+</body>
+</html>
