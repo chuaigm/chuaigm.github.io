@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>数字检查与操作</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            padding: 20px;
+        }
+        #inputWrapper {
+            margin-bottom: 20px;
+        }
+        input {
+            padding: 10px;
+            font-size: 16px;
+            width: 300px;
+        }
+        #result {
+            margin-top: 20px;
+            font-size: 18px;
+        }
+        button {
+            padding: 10px 20px;
+            font-size: 16px;
+            cursor: pointer;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>请输入一串数字</h1>
+    <div id="inputWrapper">
+        <input type="text" id="userInput" placeholder="请输入支付后的订单号" />
+        <button onclick="checkInput()">提交</button>
+    </div>
+    
+    <div id="result"></div>
+    <div id="actionButton"></div>
+
+    <script>
+        // 获取今天的日期（格式：YYMMDD）
+        function getTodayDate() {
+            const today = new Date();
+            const year = String(today.getFullYear()).slice(2); // 获取年份的最后两位
+            const month = String(today.getMonth() + 1).padStart(2, '0');
+            const day = String(today.getDate()).padStart(2, '0');
+            return year + month + day; // 返回形如 '250327' 的日期格式
+        }
+
+        // 检查输入的有效性
+        function checkInput() {
+            const userInput = document.getElementById('userInput').value;
+            const todayDate = getTodayDate(); // 获取今天的日期
+
+            // 检查输入的长度是否为36位，且包含今天的日期
+            if (userInput.length === 36 && userInput.includes(todayDate)) {
+                // 显示一个新的按钮
+                document.getElementById('result').innerText = '';
+                const successButton = document.createElement('button');
+                successButton.innerText = '点击确认，已经成功了';
+                successButton.onclick = function() {
+                    alert('已经成功了');
+                };
+                document.getElementById('actionButton').appendChild(successButton);
+            } else {
+                // 不符合条件，提示扫码支付
+                document.getElementById('result').innerText = '请扫码支付后，获取单号输入';
+                document.getElementById('actionButton').innerHTML = ''; // 清空可能存在的按钮
+            }
+        }
+    </script>
+
+</body>
+</html>
+
+
+<!--
+  
+html 实现一个网页，首先弹出一个输入框，需要在输入框中，输入一串数字，
+1. 检查这串数字是否恰好为36个数字，
+2. 并且是否包含今天的日期的6位，如今天是250327，
+如果满足上面两个条件，则在页面中显示一个新的按钮，点击按钮，显示已经成功了
+如果不满足，显示请扫码支付后，获取单号输入
+
+
+100010810125032700082241590449475087
+
+-->
