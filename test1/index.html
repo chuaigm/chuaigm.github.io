@@ -1,84 +1,145 @@
+html
 <!DOCTYPE html>
-<html lang="en">
+<html lang="zh">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>文件夹选择</title>
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-            margin: 0;
-            padding: 0;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            height: 100vh;
-            background-color: #f4f4f4;
-        }
-
-        .container {
-            text-align: center;
-        }
-
-        #fileList {
-            margin-top: 20px;
-            padding: 10px;
-            border: 1px solid #ddd;
-            width: 300px;
-            height: 200px;
-            overflow-y: scroll;
-            background-color: #fff;
-        }
-
-        button {
-            padding: 10px 20px;
-            font-size: 16px;
-            cursor: pointer;
-        }
-    </style>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>平台文件大小统计</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      text-align: center;
+      padding: 20px;
+    }
+    button {
+      background-color: #FFCC99; /* 淡橙色 */
+      padding: 10px 20px;
+      border: none;
+      font-size: 16px;
+      cursor: pointer;
+      border-radius: 5px;
+    }
+    button:hover {
+      background-color: #FFB366; /* 淡橙色 hover */
+    }
+    #result {
+      margin-top: 20px;
+      text-align: left;
+      font-size: 14px;
+      white-space: pre-wrap;
+    }
+  </style>
 </head>
 <body>
 
-<div class="container">
-    <button id="openDialog">选择文件夹</button>
-    <div id="fileList"></div>
-</div>
+  <h1>选择文件夹加载</h1>
+  <button id="chooseFolderBtn">选择文件夹</button>
 
-<input type="file" id="fileInput" style="display: none;" webkitdirectory directory multiple>
+  <div id="result"></div>
 
-<script>
-    // 获取元素
-    const openDialogButton = document.getElementById("openDialog");
-    const fileInput = document.getElementById("fileInput");
-    const fileListDiv = document.getElementById("fileList");
+  <script>
+    // 监听按钮点击事件
+    document.getElementById('chooseFolderBtn').addEventListener('click', function() {
+      // 使用文件夹选择器
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.webkitdirectory = true;  // 允许选择文件夹
+      input.directory = true; // 支持目录
+      input.multiple = true; // 允许选择多个文件
+      input.accept = '.txt'; // 仅允许选择 txt 文件
 
-    // 监听按钮点击，触发文件选择对话框
-    openDialogButton.addEventListener("click", function() {
-        fileInput.click();
+      // 当用户选择文件后
+      input.addEventListener('change', handleFileSelect);
+      input.click();
     });
 
-    // 监听文件选择变化
-    fileInput.addEventListener("change", function(event) {
-        const files = event.target.files;
-        if (files.length > 0) {
-            displayFileList(files);
+    // 处理文件选择并解析 txt 文件
+    function handleFileSelect(event) {
+      const files = event.target.files;
+      const platformData = {};
+
+      // 遍历每个文件
+      Array.from(files).forEach(file => {
+        if (file.name.endsWith('.txt')) {
+          const platformName = file.name.replace('.txt', ''); // 获取平台名称
+          const reader = new FileReader();
+
+          reader.onload = function(e) {
+            const content = e.target.result;
+            const lines = content.split('\n');
+            let totalSize = 0;
+
+            // 解析每行大小并计算总和
+            lines.forEach(line => {
+              //const match = line.match(/[\u4e00-\u9fa5]+.*\s\(\s*(\d+)\s*KB\s*\)/);
+              const match = line.match(/.*\s\(\s*(\d+)\s*KB\s*\)/);
+              if (match) {
+                const size = parseInt(match[1], 10); // 获取文件大小（单位 KB）
+                totalSize += size;
+              }
+            });
+
+            // 存储平台数据
+            platformData[platformName] = totalSize;
+
+            // 在所有文件处理完成后显示结果
+            displayResults(platformData);
+          };
+
+          reader.readAsText(file);
         }
-    });
-
-    // 显示文件列表
-    function displayFileList(files) {
-        fileListDiv.innerHTML = ''; // 清空当前显示的列表
-        const list = document.createElement("ul");
-
-        for (let i = 0; i < files.length; i++) {
-            const listItem = document.createElement("li");
-            listItem.textContent = files[i].name;
-            list.appendChild(listItem);
-        }
-
-        fileListDiv.appendChild(list);
+      });
     }
-</script>
+
+    // 显示结果
+    function displayResults(platformData) {
+      let resultText = '';
+      let totalSizeInKB = 0;
+
+      // 获取所有平台的大小并按从大到小排序
+      const sortedPlatforms = Object.keys(platformData).sort((a, b) => platformData[b] - platformData[a]);
+
+      sortedPlatforms.forEach(platform => {
+        const sizeInKB = platformData[platform];
+        const sizeInGB = (sizeInKB / 1024 / 1024).toFixed(2); // 转换为 GB
+        resultText += `${platform}: ${sizeInGB} GB\n`;
+        totalSizeInKB += sizeInKB;
+      });
+
+      // 计算总大小（单位 GB）
+      const totalSizeInGB = (totalSizeInKB / 1024 / 1024).toFixed(2);
+
+      // 显示平台和总大小
+      resultText += `\n总大小: ${totalSizeInGB} GB`;
+      //resultText += `\n总大小: ${totalSizeInKB} KB`;
+      document.getElementById('result').textContent = resultText;
+    }
+  </script>
 
 </body>
 </html>
+
+
+<!--
+  
+使用html实现一个网页，网页中间有一个淡橙色的按钮，点击按钮后，可以让用户选择一个文件夹加载，此文件夹内，有若干 txt文件，
+每个txt 的名字，为一个 platform 的名字，每个txt内，都类似于如下格式：
+
+PC原人2	( 6434 KB)
+阿猫阿狗	( 178051 KB)
+爆笑三国志	( 10074 KB)
+爆笑水浒传	( 19298 KB)
+超级医生	( 10283 KB)
+大富翁2	( 9153 KB)
+大富翁3	( 144596 KB)
+大航海时代1	( 8673 KB)
+大航海时代2	( 7442 KB)
+
+需要统计每个txt 内，每一行后面括号内的数值，每个数值代表一个文件所占空间大小，需要将这个platform 内所有文件大小进行加和，并得到这个platform所占的空间大小，以 GB 为单位。
+最后，统计所有的platform 的大小，并按照从大到小排序，将每个平台名 和所占用大小，打印出来，最后打印总的大小
+
+
+画出一个柱状图在网页展示
+  
+  
+-->
