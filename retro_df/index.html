@@ -68,7 +68,7 @@
 </head>
 <body>
 
-  <h1>请选择多个游戏平台文件</h1>
+  <h1>请选多个游戏平台文件</h1>
   <h2>(txt格式)</h2>
   <button id="chooseFileBtn">选择文件</button>
 
@@ -196,18 +196,18 @@
 
       // 获取页面宽度并计算六分之五
       // 获取页面的宽度和高度
-      const width = document.body.clientWidth;
-      const height = document.body.clientHeight;
+      const width = window.innerWidth;  // 获取当前视窗的宽度
+      const height = window.innerHeight;  // 获取当前视窗的高度
 
       // 打印宽度和高度
-      console.log("页面宽度:", width);
-      console.log("页面高度:", height);
+      //console.log("页面宽度:", width);
+      //console.log("页面高度:", height);
 
       // 获取宽度和高度中的较小值
-      //const minDimension = Math.min(width, height);
-      chart_width = width/2;
-      ctx.width = chart_width;  // 设置canvas的宽度
-      ctx.height = chart_width; // 
+      const chart_R = Math.min(width, height);
+      //chart_width = width/2;
+      ctx.width = chart_R;  // 设置canvas的宽度
+      ctx.height = chart_R; // 
 
       document.getElementById('result').appendChild(ctx);
 
