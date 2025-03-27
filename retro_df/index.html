@@ -62,11 +62,27 @@
       height: auto;
       margin: 0 auto;
     }
+    /* 右上角下载链接样式 */
+    #downloadLink {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      font-size: 16px;
+      color: #007BFF;
+      text-decoration: none;
+      font-weight: bold;
+    }
+    #downloadLink:hover {
+      text-decoration: underline;
+    }
   </style>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script> <!-- 引入 Chart.js -->
   <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels"></script> <!-- 引入 datalabels 插件 -->
 </head>
 <body>
+
+  <!-- 下载链接 -->
+  <a id="downloadLink" href="chuai_gamelist_20250326.zip" download>下载样例</a>
 
   <h1>请选多个游戏平台文件</h1>
   <h2>(txt格式)</h2>
