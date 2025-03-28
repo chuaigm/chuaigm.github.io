@@ -1,0 +1,400 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>上证指数与黄金价格K线图</title>
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+    <style>
+        body {
+            font-family: 'Microsoft YaHei', Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f7fa;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        h1 {
+            text-align: center;
+            color: #333;
+            margin-bottom: 30px;
+        }
+        .chart-container {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 20px;
+            justify-content: center;
+        }
+        .chart {
+            width: 580px;
+            height: 450px;
+            background-color: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 12px 0 rgba(0, 0, 0, 0.1);
+        }
+        .chart-title {
+            text-align: center;
+            padding: 15px 0;
+            font-size: 18px;
+            font-weight: bold;
+            color: #333;
+            border-bottom: 1px solid #eee;
+        }
+        .chart-content {
+            width: 100%;
+            height: calc(100% - 50px);
+        }
+        .time-selector {
+            text-align: center;
+            margin-bottom: 20px;
+        }
+        .time-btn {
+            padding: 8px 15px;
+            margin: 0 5px;
+            background-color: #f0f0f0;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        .time-btn:hover {
+            background-color: #e0e0e0;
+        }
+        .time-btn.active {
+            background-color: #1890ff;
+            color: white;
+        }
+        .data-source {
+            text-align: right;
+            margin-top: 10px;
+            font-size: 12px;
+            color: #999;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>上证指数与黄金价格K线图</h1>
+        
+        <div class="time-selector">
+            <button class="time-btn active" data-days="7">近7天</button>
+            <button class="time-btn" data-days="30">近1月</button>
+            <button class="time-btn" data-days="90">近3月</button>
+            <button class="time-btn" data-days="180">近6月</button>
+            <button class="time-btn" data-days="365">近1年</button>
+        </div>
+        
+        <div class="chart-container">
+            <div class="chart">
+                <div class="chart-title">上证指数 (SSE Composite Index)</div>
+                <div id="sse-chart" class="chart-content"></div>
+                <div class="data-source">数据来源: 新浪财经</div>
+            </div>
+            
+            <div class="chart">
+                <div class="chart-title">黄金价格 (Gold Price)</div>
+                <div id="gold-chart" class="chart-content"></div>
+                <div class="data-source">数据来源: 伦敦金银市场协会</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 初始化图表
+        const sseChart = echarts.init(document.getElementById('sse-chart'));
+        const goldChart = echarts.init(document.getElementById('gold-chart'));
+        
+        // 响应窗口大小变化
+        window.addEventListener('resize', function() {
+            sseChart.resize();
+            goldChart.resize();
+        });
+        
+        // 时间选择器事件
+        document.querySelectorAll('.time-btn').forEach(btn => {
+            btn.addEventListener('click', function() {
+                document.querySelectorAll('.time-btn').forEach(b => b.classList.remove('active'));
+                this.classList.add('active');
+                const days = parseInt(this.getAttribute('data-days'));
+                updateCharts(days);
+            });
+        });
+        
+        // 模拟数据获取函数 - 实际应用中应替换为真实的API调用
+        function fetchSSEData(days) {
+            // 这里应该是实际的API请求，以下是模拟数据
+            console.log(`Fetching SSE data for last ${days} days`);
+            
+            // 生成模拟数据
+            const now = new Date();
+            const data = [];
+            for (let i = days; i >= 0; i--) {
+                const date = new Date(now);
+                date.setDate(date.getDate() - i);
+                
+                const open = 3000 + Math.random() * 200;
+                const close = open + (Math.random() - 0.5) * 100;
+                const low = Math.min(open, close) - Math.random() * 50;
+                const high = Math.max(open, close) + Math.random() * 50;
+                
+                data.push([
+                    date.toISOString().split('T')[0],
+                    open.toFixed(2),
+                    close.toFixed(2),
+                    low.toFixed(2),
+                    high.toFixed(2),
+                    (100000000 + Math.random() * 50000000).toFixed(0)
+                ]);
+            }
+            
+            return Promise.resolve(data);
+        }
+        
+        function fetchGoldData(days) {
+            // 这里应该是实际的API请求，以下是模拟数据
+            console.log(`Fetching Gold data for last ${days} days`);
+            
+            // 生成模拟数据
+            const now = new Date();
+            const data = [];
+            for (let i = days; i >= 0; i--) {
+                const date = new Date(now);
+                date.setDate(date.getDate() - i);
+                
+                const open = 1800 + Math.random() * 100;
+                const close = open + (Math.random() - 0.5) * 50;
+                const low = Math.min(open, close) - Math.random() * 30;
+                const high = Math.max(open, close) + Math.random() * 30;
+                
+                data.push([
+                    date.toISOString().split('T')[0],
+                    open.toFixed(2),
+                    close.toFixed(2),
+                    low.toFixed(2),
+                    high.toFixed(2),
+                    (100000 + Math.random() * 50000).toFixed(0)
+                ]);
+            }
+            
+            return Promise.resolve(data);
+        }
+        
+        // 更新图表函数
+        function updateCharts(days) {
+            // 获取上证指数数据并更新图表
+            fetchSSEData(days).then(data => {
+                updateKLineChart(sseChart, data, '上证指数');
+            });
+            
+            // 获取黄金价格数据并更新图表
+            fetchGoldData(days).then(data => {
+                updateKLineChart(goldChart, data, '黄金价格(美元/盎司)');
+            });
+        }
+        
+        // 更新K线图
+        function updateKLineChart(chart, rawData, title) {
+            // 处理数据格式
+            const dates = rawData.map(item => item[0]);
+            const values = rawData.map(item => [
+                parseFloat(item[1]), // open
+                parseFloat(item[2]), // close
+                parseFloat(item[3]), // low
+                parseFloat(item[4]), // high
+                parseFloat(item[5])  // volume
+            ]);
+            
+            // 计算MA5和MA10
+            const calculateMA = (dayCount) => {
+                const result = [];
+                for (let i = 0; i < values.length; i++) {
+                    if (i < dayCount) {
+                        result.push('-');
+                        continue;
+                    }
+                    let sum = 0;
+                    for (let j = 0; j < dayCount; j++) {
+                        sum += values[i - j][1]; // close price
+                    }
+                    result.push((sum / dayCount).toFixed(2));
+                }
+                return result;
+            };
+            
+            const option = {
+                title: {
+                    text: title,
+                    left: 'center',
+                    textStyle: {
+                        fontSize: 14
+                    }
+                },
+                tooltip: {
+                    trigger: 'axis',
+                    axisPointer: {
+                        type: 'cross'
+                    }
+                },
+                legend: {
+                    data: ['日K', 'MA5', 'MA10'],
+                    top: 30
+                },
+                grid: [
+                    {
+                        left: '10%',
+                        right: '10%',
+                        top: '18%',
+                        height: '60%'
+                    },
+                    {
+                        left: '10%',
+                        right: '10%',
+                        top: '80%',
+                        height: '15%'
+                    }
+                ],
+                xAxis: [
+                    {
+                        type: 'category',
+                        data: dates,
+                        scale: true,
+                        boundaryGap: false,
+                        axisLine: { onZero: false },
+                        splitLine: { show: false },
+                        splitNumber: 20,
+                        min: 'dataMin',
+                        max: 'dataMax',
+                        axisPointer: {
+                            z: 100
+                        }
+                    },
+                    {
+                        type: 'category',
+                        gridIndex: 1,
+                        data: dates,
+                        scale: true,
+                        boundaryGap: false,
+                        axisLine: { onZero: false },
+                        axisTick: { show: false },
+                        splitLine: { show: false },
+                        axisLabel: { show: false },
+                        splitNumber: 20,
+                        min: 'dataMin',
+                        max: 'dataMax'
+                    }
+                ],
+                yAxis: [
+                    {
+                        scale: true,
+                        splitArea: {
+                            show: true
+                        }
+                    },
+                    {
+                        scale: true,
+                        gridIndex: 1,
+                        splitNumber: 2,
+                        axisLabel: { show: false },
+                        axisLine: { show: false },
+                        axisTick: { show: false },
+                        splitLine: { show: false }
+                    }
+                ],
+                dataZoom: [
+                    {
+                        type: 'inside',
+                        xAxisIndex: [0, 1],
+                        start: 80,
+                        end: 100
+                    },
+                    {
+                        show: true,
+                        xAxisIndex: [0, 1],
+                        type: 'slider',
+                        top: '95%',
+                        start: 80,
+                        end: 100
+                    }
+                ],
+                series: [
+                    {
+                        name: '日K',
+                        type: 'candlestick',
+                        data: values,
+                        itemStyle: {
+                            color: '#ef232a',
+                            color0: '#14b143',
+                            borderColor: '#ef232a',
+                            borderColor0: '#14b143'
+                        },
+                        markPoint: {
+                            label: {
+                                formatter: function(param) {
+                                    return param != null ? Math.round(param.value) + '' : '';
+                                }
+                            },
+                            data: [
+                                {
+                                    name: '最高值',
+                                    type: 'max',
+                                    valueDim: 'highest'
+                                },
+                                {
+                                    name: '最低值',
+                                    type: 'min',
+                                    valueDim: 'lowest'
+                                }
+                            ],
+                            tooltip: {
+                                formatter: function(param) {
+                                    return param.name + '<br>' + (param.data.coord || '');
+                                }
+                            }
+                        }
+                    },
+                    {
+                        name: 'MA5',
+                        type: 'line',
+                        data: calculateMA(5),
+                        smooth: true,
+                        lineStyle: {
+                            opacity: 0.5
+                        }
+                    },
+                    {
+                        name: 'MA10',
+                        type: 'line',
+                        data: calculateMA(10),
+                        smooth: true,
+                        lineStyle: {
+                            opacity: 0.5
+                        }
+                    },
+                    {
+                        name: '成交量',
+                        type: 'bar',
+                        xAxisIndex: 1,
+                        yAxisIndex: 1,
+                        data: values.map(item => item[4]),
+                        itemStyle: {
+                            color: function(params) {
+                                const colorList = values.map(item => 
+                                    item[1] >= item[0] ? '#ef232a' : '#14b143'
+                                );
+                                return colorList[params.dataIndex];
+                            }
+                        }
+                    }
+                ]
+            };
+            
+            chart.setOption(option, true);
+        }
+        
+        // 初始加载7天数据
+        updateCharts(7);
+    </script>
+</body>
+</html>

@@ -1,195 +1,372 @@
-<!doctype html>
-<html>
+<!DOCTYPE html>
+<html lang="zh-CN">
 <head>
-<title>Paint</title>
-<style type="text/css">
-#can{ width:600px; height:500px; border:1px solid #ccc; margin-top:0px; margin-left:20px;}
-</style>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>网页画图板</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+            background-color: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            text-align: center;
+            color: #333;
+        }
+        .toolbar {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-bottom: 15px;
+            padding: 10px;
+            background-color: #eee;
+            border-radius: 5px;
+        }
+        .tool-group {
+            display: flex;
+            align-items: center;
+            margin-right: 15px;
+        }
+        .tool-group label {
+            margin-right: 5px;
+            font-weight: bold;
+        }
+        button {
+            padding: 8px 12px;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-right: 5px;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        button.active {
+            background-color: #2E7D32;
+        }
+        #clearBtn {
+            background-color: #f44336;
+        }
+        #clearBtn:hover {
+            background-color: #d32f2f;
+        }
+        #saveBtn {
+            background-color: #2196F3;
+        }
+        #saveBtn:hover {
+            background-color: #0b7dda;
+        }
+        canvas {
+            border: 1px solid #ddd;
+            background-color: white;
+            display: block;
+            margin: 0 auto;
+            cursor: crosshair;
+        }
+        .color-option {
+            width: 25px;
+            height: 25px;
+            display: inline-block;
+            margin-right: 5px;
+            border: 1px solid #999;
+            cursor: pointer;
+        }
+        .color-option.selected {
+            border: 2px solid #000;
+        }
+    </style>
 </head>
 <body>
-<h2 style="padding-left:20px">canvas</h2>
-<canvas id="can" width="600" height="500"></canvas>
-  <script type="text/javascript">
-                function getBodyOffsetTop(el){
-                    var top = 0;
-                    do{
-                        top = top + el.offsetTop;
-                    }while(el = el.offsetParent);
-                    return top;
-                }
-                function getBodyOffsetLeft(el){
-                    var left = 0;
-                    do{
-                        left = left + el.offsetLeft;
-                    }while(el = el.offsetParent);
-                    return left;
-                }
-                function Drawing(canvas,options){
-                    typeof canvas == 'string' && (canvas = document.getElementById(canvas));
-                    if(!canvas || !canvas.getContext){
-                        throw new Error(100,'do not support canvas!');
-                    }
-                    this.option = {
-                        colors:['#000000','#ff0000','#00ff00','#0000ff','#00ffff','#7fef02','#4488bb']
-                    };
-                    this.setOption(options);
-                    this.init(canvas);
-                }
-                Drawing.prototype = {
-                    setOption:function(options){
-                        typeof options == 'object' || (options = {});
-                        for(var i in options){
-                            switch(i){
-                                case 'colors':
-                                    this.option[i] = options[i];
-                                    break;
-                            }
-                        }
-                    },
-                    init:function(canvas){
-                        this.canvas = canvas;
-                        this.context = canvas.getContext('2d');
-                        this.context.lineWidth = 1;
-                        this.context.lineJons = 'round';
-                        this.context.lineCep = 'round';
-                        this.isButtonDown = false;
-                        this.historyStroker = [];
-                        this.curStroker = {color:'#000000',path:[]};
-                        this.lastX = 0;
-                        this.lastY = 0;
-                        this.curColor = '#000000';
-                        this.toolbarspos ={};
-                        this.bindEvent();
-                        this.ResetDrawToolbar();
-                    },
-                    bindEvent:function(){
-                        var self = this;
-                        this.canvas.addEventListener('mousemove',function(event){
-                            var x = event.pageX-getBodyOffsetLeft(this),
-                                y = event.pageY-getBodyOffsetTop(this);
-                            self.onMouseMove({x:x,y:y});
-                        },false);
-                        this.canvas.addEventListener('mousedown',function(event){
-                            var x = event.pageX-getBodyOffsetLeft(this),
-                                y = event.pageY-getBodyOffsetTop(this);
-                            self.onMouseDown(event,{x:x,y:y});
-                        },false);
-                        this.canvas.addEventListener('mouseup',function(event){
-                            var x = event.pageX-getBodyOffsetLeft(this),
-                                y = event.pageY-getBodyOffsetTop(this);
-                            self.onMouseUp(event,{x:x,y:y});
-                        },false);
-                        this.canvas.addEventListener('click',function(event){
-                            var x = event.pageX-getBodyOffsetLeft(this),
-                                y = event.pageY-getBodyOffsetTop(this);
-                            self.onClick({x:x,y:y});
-                        },false);
-                    },
-                    onMouseMove:function(pos){
-                        if(this.isButtonDown){
-                            var p = this.toolbarspos;
-                            for(var i in p){
-                                if(pos.x >= p[i].x
-                                && pos.x <= p[i].x+p[i].w 
-                                && pos.y >= p[i].y
-                                && pos.y <= p[i].y+p[i].h){
-                                    return;
-                                }
-                            }
-                            this.context.lineTo(pos.x,pos.y);
-                            this.context.stroke();
-                            this.lastX = pos.x;
-                            this.lastY = pos.y;
-                            this.curStroker.path.push(pos);
-                        }
-                    },
-                    onMouseDown:function(event,pos){
-                        if(event.button == 0){
-                            var p = this.toolbarspos;
-                            for(var i in p){
-                                if(pos.x >= p[i].x
-                                && pos.x <= p[i].x+p[i].w 
-                                && pos.y >= p[i].y
-                                && pos.y <= p[i].y+p[i].h){
-                                    return;
-                                }
-                            }
-                            this.isButtonDown = true;
-                            this.lastX = pos.x;
-                            this.lastY = pos.y;
-                            this.context.beginPath();
-                            this.context.moveTo(this.lastX,this.lastY);
-                            this.curStroker.color = this.curColor;
-                            this.curStroker.path.push(pos);
-                        }
-                    },
-                    onMouseUp:function(event,pos){
-                        if(event.button == 0){
-                            var p = this.toolbarspos;
-                            for(var i in p){
-                                if(pos.x >= p[i].x
-                                && pos.x <= p[i].x+p[i].w 
-                                && pos.y >= p[i].y
-                                && pos.y <= p[i].y+p[i].h){
-                                    return;
-                                }
-                            }
-                            this.isButtonDown = false;
-                            this.historyStroker.push(this.curStroker);
-                            this.curStroker = {color:this.curColor,path:[]};
-                        }
-                    },
-                    ResetDrawAll:function(){
-                        this.context.clearRect(0,0,500,500);
-                        this.ResetDrawCentre();
-                        this.ResetDrawToolbar();
-                    },
-                    ResetDrawCentre:function(){ 
-                        var p = this.historyStroker,p2,
-                        curColor = this.context.strokeStyle;
-                        for(var i=0; i< p.length;i++){ 
-                            this.context.strokeStyle = p[i].color;
-                            this.context.beginPath();
-                            for(var t=0; t<p[i].path.length;t++){
-                                p2 = p[i].path[t];
-                                if(t==0) this.context.moveTo(p2.x,p2.y);
-                                this.context.lineTo(p2.x,p2.y);
-                                this.context.stroke();
-                            }
-                            this.context.beginPath();
-                        }
-                        this.context.strokeStyle = curColor;
-                    },
-                    ResetDrawToolbar:function(){
-                        var curcolor = this.context.fillStyle;
-                        for(var i=0; i<this.option.colors.length;i++){
-                            this.context.fillStyle = this.option.colors[i];
-                            if(this.curColor == this.context.fillStyle){
-                                this.context.fillRect(i*35+5,2,30,20);
-                                this.toolbarspos[i] ={x:i*35+5,y:2,w:30,h:20};
-                            }else{
-                                this.context.fillRect(i*35+5,5,30,20);
-                                this.toolbarspos[i] = {x:i*35+5,y:5,w:30,h:20};
-                            }
-                            this.context.stroke();
-                        }
-                        this.context.fillStyle = curcolor;
-                    },
-                    onClick:function(pos){
-                        var p = this.toolbarspos;
-                        for(var i in p){
-                            if(pos.x >= p[i].x
-                            && pos.x <= p[i].x+p[i].w 
-                            && pos.y >= p[i].y
-                            && pos.y <= p[i].y+p[i].h){
-                                this.curColor = this.option.colors[i];
-                                this.context.strokeStyle = this.curColor;
-                                this.ResetDrawAll();
-                            }
-                        }
-                    }
-                };
-                new Drawing('can');
-            </script></body>
-</html>
+    <div class="container">
+        <h1>网页画图板</h1>
+        
+        <div class="toolbar">
+            <div class="tool-group">
+                <label>工具:</label>
+                <button id="pencilBtn" class="active">铅笔</button>
+                <button id="brushBtn">画笔</button>
+                <button id="eraserBtn">橡皮擦</button>
+                <button id="lineBtn">直线</button>
+                <button id="rectBtn">矩形</button>
+                <button id="circleBtn">圆形</button>
+            </div>
+            
+            <div class="tool-group">
+                <label>颜色:</label>
+                <div id="colorBlack" class="color-option selected" style="background-color: #000000;"></div>
+                <div id="colorRed" class="color-option" style="background-color: #ff0000;"></div>
+                <div id="colorGreen" class="color-option" style="background-color: #00ff00;"></div>
+                <div id="colorBlue" class="color-option" style="background-color: #0000ff;"></div>
+                <div id="colorYellow" class="color-option" style="background-color: #ffff00;"></div>
+                <input type="color" id="colorPicker" value="#000000" style="width: 30px; height: 30px;">
+            </div>
+            
+            <div class="tool-group">
+                <label>粗细:</label>
+                <input type="range" id="lineWidth" min="1" max="50" value="5">
+                <span id="lineWidthValue">5</span>
+            </div>
+            
+            <div class="tool-group">
+                <button id="clearBtn">清空画布</button>
+                <button id="saveBtn">保存图片</button>
+            </div>
+        </div>
+        
+        <canvas id="drawingCanvas" width="800" height="500"></canvas>
+    </div>
 
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            const canvas = document.getElementById('drawingCanvas');
+            const ctx = canvas.getContext('2d');
+            let isDrawing = false;
+            let currentTool = 'pencil';
+            let currentColor = '#000000';
+            let lineWidth = 5;
+            let startX, startY;
+            let snapshot;
+            
+            // 工具按钮
+            const pencilBtn = document.getElementById('pencilBtn');
+            const brushBtn = document.getElementById('brushBtn');
+            const eraserBtn = document.getElementById('eraserBtn');
+            const lineBtn = document.getElementById('lineBtn');
+            const rectBtn = document.getElementById('rectBtn');
+            const circleBtn = document.getElementById('circleBtn');
+            const clearBtn = document.getElementById('clearBtn');
+            const saveBtn = document.getElementById('saveBtn');
+            
+            // 颜色选择
+            const colorOptions = document.querySelectorAll('.color-option');
+            const colorPicker = document.getElementById('colorPicker');
+            
+            // 线条粗细
+            const lineWidthInput = document.getElementById('lineWidth');
+            const lineWidthValue = document.getElementById('lineWidthValue');
+            
+            // 初始化画布
+            ctx.fillStyle = 'white';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.strokeStyle = currentColor;
+            ctx.lineWidth = lineWidth;
+            ctx.lineCap = 'round';
+            
+            // 工具选择
+            function setActiveTool(tool) {
+                currentTool = tool;
+                pencilBtn.classList.remove('active');
+                brushBtn.classList.remove('active');
+                eraserBtn.classList.remove('active');
+                lineBtn.classList.remove('active');
+                rectBtn.classList.remove('active');
+                circleBtn.classList.remove('active');
+                
+                switch(tool) {
+                    case 'pencil':
+                        pencilBtn.classList.add('active');
+                        break;
+                    case 'brush':
+                        brushBtn.classList.add('active');
+                        break;
+                    case 'eraser':
+                        eraserBtn.classList.add('active');
+                        break;
+                    case 'line':
+                        lineBtn.classList.add('active');
+                        break;
+                    case 'rect':
+                        rectBtn.classList.add('active');
+                        break;
+                    case 'circle':
+                        circleBtn.classList.add('active');
+                        break;
+                }
+            }
+            
+            pencilBtn.addEventListener('click', () => setActiveTool('pencil'));
+            brushBtn.addEventListener('click', () => setActiveTool('brush'));
+            eraserBtn.addEventListener('click', () => setActiveTool('eraser'));
+            lineBtn.addEventListener('click', () => setActiveTool('line'));
+            rectBtn.addEventListener('click', () => setActiveTool('rect'));
+            circleBtn.addEventListener('click', () => setActiveTool('circle'));
+            
+            // 颜色选择
+            colorOptions.forEach(option => {
+                option.addEventListener('click', function() {
+                    colorOptions.forEach(opt => opt.classList.remove('selected'));
+                    this.classList.add('selected');
+                    currentColor = this.style.backgroundColor;
+                    ctx.strokeStyle = currentColor;
+                    ctx.fillStyle = currentColor;
+                    colorPicker.value = rgbToHex(currentColor);
+                });
+            });
+            
+            colorPicker.addEventListener('input', function() {
+                currentColor = this.value;
+                ctx.strokeStyle = currentColor;
+                ctx.fillStyle = currentColor;
+                
+                // 更新选中的颜色选项
+                colorOptions.forEach(opt => {
+                    if (rgbToHex(opt.style.backgroundColor) === this.value) {
+                        colorOptions.forEach(o => o.classList.remove('selected'));
+                        opt.classList.add('selected');
+                    }
+                });
+            });
+            
+            // 线条粗细
+            lineWidthInput.addEventListener('input', function() {
+                lineWidth = this.value;
+                lineWidthValue.textContent = lineWidth;
+                ctx.lineWidth = lineWidth;
+            });
+            
+            // 清空画布
+            clearBtn.addEventListener('click', function() {
+                if (confirm('确定要清空画布吗？')) {
+                    ctx.fillStyle = 'white';
+                    ctx.fillRect(0, 0, canvas.width, canvas.height);
+                    ctx.strokeStyle = currentColor;
+                    ctx.fillStyle = currentColor;
+                    ctx.lineWidth = lineWidth;
+                }
+            });
+            
+            // 保存图片
+            saveBtn.addEventListener('click', function() {
+                const link = document.createElement('a');
+                link.download = 'drawing.png';
+                link.href = canvas.toDataURL('image/png');
+                link.click();
+            });
+            
+            // 绘图功能
+            function startDrawing(e) {
+                isDrawing = true;
+                startX = e.offsetX;
+                startY = e.offsetY;
+                
+                // 保存当前画布状态（用于形状工具）
+                if (currentTool === 'line' || currentTool === 'rect' || currentTool === 'circle') {
+                    snapshot = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                }
+                
+                // 如果是铅笔或画笔，直接开始路径
+                if (currentTool === 'pencil' || currentTool === 'brush' || currentTool === 'eraser') {
+                    ctx.beginPath();
+                    ctx.moveTo(startX, startY);
+                }
+            }
+            
+            function draw(e) {
+                if (!isDrawing) return;
+                
+                const x = e.offsetX;
+                const y = e.offsetY;
+                
+                switch(currentTool) {
+                    case 'pencil':
+                        ctx.strokeStyle = currentColor;
+                        ctx.lineTo(x, y);
+                        ctx.stroke();
+                        break;
+                        
+                    case 'brush':
+                        ctx.strokeStyle = currentColor;
+                        ctx.lineTo(x, y);
+                        ctx.stroke();
+                        break;
+                        
+                    case 'eraser':
+                        ctx.strokeStyle = 'white';
+                        ctx.lineTo(x, y);
+                        ctx.stroke();
+                        break;
+                        
+                    case 'line':
+                        ctx.putImageData(snapshot, 0, 0);
+                        ctx.beginPath();
+                        ctx.moveTo(startX, startY);
+                        ctx.lineTo(x, y);
+                        ctx.stroke();
+                        break;
+                        
+                    case 'rect':
+                        ctx.putImageData(snapshot, 0, 0);
+                        ctx.beginPath();
+                        ctx.rect(startX, startY, x - startX, y - startY);
+                        ctx.stroke();
+                        break;
+                        
+                    case 'circle':
+                        ctx.putImageData(snapshot, 0, 0);
+                        ctx.beginPath();
+                        const radius = Math.sqrt(Math.pow(x - startX, 2) + Math.pow(y - startY, 2));
+                        ctx.arc(startX, startY, radius, 0, 2 * Math.PI);
+                        ctx.stroke();
+                        break;
+                }
+            }
+            
+            function stopDrawing() {
+                isDrawing = false;
+                
+                // 如果是形状工具，绘制最终形状
+                if (currentTool === 'line' || currentTool === 'rect' || currentTool === 'circle') {
+                    snapshot = null;
+                }
+            }
+            
+            // 事件监听
+            canvas.addEventListener('mousedown', startDrawing);
+            canvas.addEventListener('mousemove', draw);
+            canvas.addEventListener('mouseup', stopDrawing);
+            canvas.addEventListener('mouseout', stopDrawing);
+            
+            // 辅助函数：RGB转十六进制
+            function rgbToHex(rgb) {
+                if (rgb.startsWith('#')) return rgb;
+                
+                const match = rgb.match(/^rgb\((\d+),\s*(\d+),\s*(\d+)\)$/);
+                if (!match) return '#000000';
+                
+                const r = parseInt(match[1], 10).toString(16).padStart(2, '0');
+                const g = parseInt(match[2], 10).toString(16).padStart(2, '0');
+                const b = parseInt(match[3], 10).toString(16).padStart(2, '0');
+                
+                return `#${r}${g}${b}`;
+            }
+            
+            // 设置画笔工具的初始粗细
+            brushBtn.addEventListener('click', function() {
+                lineWidthInput.value = 15;
+                lineWidth = 15;
+                lineWidthValue.textContent = '15';
+                ctx.lineWidth = lineWidth;
+            });
+            
+            pencilBtn.addEventListener('click', function() {
+                lineWidthInput.value = 5;
+                lineWidth = 5;
+                lineWidthValue.textContent = '5';
+                ctx.lineWidth = lineWidth;
+            });
+        });
+    </script>
+</body>
+</html>
