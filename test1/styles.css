@@ -1,0 +1,119 @@
+/* styles.css */
+
+body {
+    margin: 0;
+    font-family: Arial, sans-serif;
+}
+
+#header {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    background: #333;
+    color: white;
+    padding: 10px;
+    text-align: center;
+    z-index: 5;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    margin-left: 60px; /* 留出左侧可伸缩栏的空间 */
+}
+
+#spaceInfo {
+    font-size: 14px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+#spaceInfo span {
+    margin: 0 5px;
+}
+
+#separator {
+    margin: 0 10px;
+}
+
+#buttons {
+    margin-top: 10px;
+}
+
+#sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 60px;
+    height: 100%;
+    background-color: #222;
+    color: white;
+    transition: width 0.3s;
+    overflow-y: auto;
+    z-index: 10;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+#sidebar.open {
+    width: 250px;
+}
+
+#sidebar #platformIcons {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px;
+    padding: 10px;
+    padding: 10px;
+    margin-top: 70px; /* 将图标与按钮分开 */
+}
+
+#sidebar img {
+    width: 40px;
+    height: 40px;
+    cursor: pointer;
+}
+
+#sidebar #toggleSidebarBtn {
+    background-color: #333;
+    color: white;
+    border: none;
+    font-size: 30px;
+    height: 70px;
+    width: 60px;
+    cursor: pointer;
+    z-index: 15;
+    position: absolute;
+    top: 0;
+    left: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: transform 0.3s ease; /* 添加平滑过渡 */
+}
+
+/* 添加类来实现按钮的左右镜像 */
+#sidebar #toggleSidebarBtn.mirrored {
+    transform: scaleX(-1); /* 镜像反转按钮 */
+}
+
+#mainContent {
+    margin-left: 60px; /* 保持主内容区域与左侧面板对齐 */
+    padding-top: 60px; /* 留出顶部空间 */
+    overflow-y: auto;
+    transition: margin-left 0.3s;
+}
+
+#mainContent.expanded {
+    margin-left: 250px; /* 侧边栏展开时，调整主区域的左边距 */
+}
+
+#gameList {
+    padding: 20px;
+}
+
+#gameList label {
+    display: block;
+    margin: 5px 0;
+}
