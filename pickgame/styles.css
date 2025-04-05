@@ -1,10 +1,10 @@
 /* styles.css */
 
 :root {
-    --top-margin: 70px;
-    --ico-width: 40px;
-    --sidebar-width: 60px;
-    --sidebar-width-expand: 160px;
+    --top-margin: 70px;             /* 顶部固定区域的高度 */
+    --ico-width: 40px;              /* 图标的宽度 */
+    --sidebar-width: 60px;          /* 侧边栏收起时的宽度 */
+    --sidebar-width-expand: 160px;  /* 侧边栏展开时的宽度 */
 }
 
 body {
@@ -68,7 +68,7 @@ body {
 #sidebar.open {
     width: var(--sidebar-width-expand);
 }
-/* 侧边栏中图标 */
+/* 侧边栏中存放图标的区域排列 */
 #sidebar #platformIcons {
     display: grid;
     grid-template-columns: repeat(3, 1fr);      /* 设置三列的网格布局，每列宽度相等 */
@@ -77,13 +77,14 @@ body {
     padding: 10px;
     margin-top: var(--top-margin);       /* 将图标与按钮分开 */
 }
-
+/* 侧边栏中图标 */
 #sidebar img {
     width: var(--ico-width);
     height: var(--ico-width);
     cursor: pointer;
 }
 
+/* 侧边栏拉伸按钮 */
 #sidebar #toggleSidebarBtn {
     background-color: #222;
     color: white;

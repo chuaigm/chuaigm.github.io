@@ -33,9 +33,17 @@ async function loadGameFiles() {
 // 解析txt文件内容，处理空格和大小（KB）分隔的情况
 function parseGameData(data) {
     return data.split('\n').map(line => {
-        const parts = line.trim().split(/\s+(?=\d)/);  // 以第一个数字前的空格分割
-        const name = parts[0];
-        const sizeKB = parseInt(parts[1], 10);
+        const parts = line.trim().split(/\s+(?=\(\s*\d+\s*KB\))/);
+        const name = parts[0].trim();  // 游戏名称
+        //const size = parts[1].replace(/[^\d]/g, '');  // 提取数字大小部分
+        // 假设 parts 是分割后的数组，检查它是否有足够的元素
+        size = 0
+        if (parts.length > 1 && parts[1]) {
+            size = parts[1].replace(/[^\d]/g, '');  // 提取数字大小部分
+        } else {
+            console.log("error line: ", line);
+        }
+        const sizeKB = parseInt(size, 10);  // 将容量转换为整数
 
         return { name, sizeKB: isNaN(sizeKB) ? 0 : sizeKB };
     }).filter(game => game.name && game.sizeKB);
@@ -54,9 +62,12 @@ function renderPlatformIcons() {
 
         // 记录当前点击的平台
         icon.onclick = () => {
-            // 记录当前平台
-            currentSelectedPlatform = platform;
-            displayPlatformGames(platform);
+            // 如果当前平台未被选中
+            if (currentSelectedPlatform != platform) {
+                // 记录当前平台
+                currentSelectedPlatform = platform;
+                displayPlatformGames(platform);
+            }
         };
 
         if (!document.getElementById('sidebar').classList.contains('open') && currentSelectedPlatform != platform) {
@@ -68,6 +79,22 @@ function renderPlatformIcons() {
         platformIconsDiv.appendChild(icon);
     });
 }
+
+// 切换左侧面板的显示
+document.getElementById('toggleSidebarBtn').onclick = () => {
+    const sidebar = document.getElementById('sidebar');
+    const mainContent = document.getElementById('mainContent');
+    const toggleButton = document.getElementById('toggleSidebarBtn');
+
+    // 切换面板的状态
+    sidebar.classList.toggle('open');
+    mainContent.classList.toggle('expanded');
+
+    // 切换按钮的镜像反转效果
+    toggleButton.classList.toggle('mirrored');
+
+    renderPlatformIcons();  // 更新平台图标的显示状态
+};
 
 // 显示游戏平台下的游戏
 function displayPlatformGames(platform) {
@@ -117,22 +144,6 @@ function updateSelectedSpace() {
 
     document.getElementById('totalSpace').textContent = `所有选则总量：${totalSelectedSpaceInGB} GB`;
 }
-
-// 切换左侧面板的显示
-document.getElementById('toggleSidebarBtn').onclick = () => {
-    const sidebar = document.getElementById('sidebar');
-    const mainContent = document.getElementById('mainContent');
-    const toggleButton = document.getElementById('toggleSidebarBtn');
-
-    // 切换面板的状态
-    sidebar.classList.toggle('open');
-    mainContent.classList.toggle('expanded');
-
-    // 切换按钮的镜像反转效果
-    toggleButton.classList.toggle('mirrored');
-
-    renderPlatformIcons();  // 更新平台图标的显示状态
-};
 
 // 处理全选按钮
 document.getElementById('selectAllBtn').onclick = () => {
