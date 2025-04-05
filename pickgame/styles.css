@@ -1,0 +1,128 @@
+/* styles.css */
+
+:root {
+    --top-margin: 70px;
+    --ico-width: 40px;
+    --sidebar-width: 60px;
+    --sidebar-width-expand: 160px;
+}
+
+body {
+    margin: 0;
+    font-family: Arial, sans-serif;
+}
+
+/* 顶部固定区域 */
+#header {
+    position: fixed;        /* 使头部固定在页面顶部，即使滚动页面，头部也不会移动。 */
+    top: 0;
+    left: 0;
+    right: 0;
+    background: #333;
+    color: white;
+    padding: 10px;
+    text-align: center;
+    z-index: 5;
+    display: flex;          /* 采用 Flexbox 布局 */ 
+    flex-direction: column; /* 使子元素垂直排列  */
+    align-items: center;
+    /*margin-left: 60px;  留出左侧可伸缩栏的空间 */
+}
+
+#spaceInfo {
+    font-size: 14px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+}
+
+#spaceInfo span {
+    margin: 0 5px;
+}
+
+#separator {
+    margin: 0 10px;
+}
+
+#buttons {
+    margin-top: 10px;
+}
+
+/* 侧边栏 */
+#sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: var(--sidebar-width);
+    height: 100%;
+    background-color: #222;
+    color: white;
+    transition: width 0.3s;     /* 宽度变化时会有平滑的过渡效果 */
+    overflow-y: auto;       /* 如果侧边栏内容超出高度，会显示垂直滚动条 */
+    z-index: 10;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+/* 侧边栏打开 */
+#sidebar.open {
+    width: var(--sidebar-width-expand);
+}
+/* 侧边栏中图标 */
+#sidebar #platformIcons {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);      /* 设置三列的网格布局，每列宽度相等 */
+    gap: 10px;
+    padding: 10px;
+    padding: 10px;
+    margin-top: var(--top-margin);       /* 将图标与按钮分开 */
+}
+
+#sidebar img {
+    width: var(--ico-width);
+    height: var(--ico-width);
+    cursor: pointer;
+}
+
+#sidebar #toggleSidebarBtn {
+    background-color: #222;
+    color: white;
+    border: none;
+    font-size: 30px;
+    height: var(--top-margin);
+    width: var(--sidebar-width);
+    cursor: pointer;
+    z-index: 15;
+    position: absolute;
+    top: 0;
+    left: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: transform 0.3s ease; /* 添加平滑过渡 */
+}
+
+/* 添加类来实现按钮的左右镜像 */
+#sidebar #toggleSidebarBtn.mirrored {
+    transform: scaleX(-1); /* 镜像反转按钮 */
+}
+
+#mainContent {
+    margin-left: var(--sidebar-width); /* 保持主内容区域与左侧面板对齐 */
+    padding-top: var(--top-margin); /* 留出顶部空间 */
+    overflow-y: auto;
+    transition: margin-left 0.3s;
+}
+
+#mainContent.expanded {
+    margin-left: var(--sidebar-width-expand); /* 侧边栏展开时，调整主区域的左边距 */
+}
+
+#gameList {
+    padding: 20px;
+}
+
+#gameList label {
+    display: block;
+    margin: 5px 0;
+}
