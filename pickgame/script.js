@@ -68,12 +68,13 @@ async function loadGameFiles() {
     document.getElementById('selectedSpace').textContent = `当前平台：0.0 GB`;
     document.getElementById('totalSpace').textContent = `所有总计：0.0 GB`;
 
-    for (const fileName of platformFiles) {
+    // 创建所有加载文件的 promise
+    const loadPromises = platformFiles.map(async (fileName) => {
         try {
             const response = await fetch(`game_list/${fileName}`);
             if (!response.ok) {
                 console.error(`无法加载文件: ${fileName}`);
-                continue;
+                return;
             }
 
             const data = await response.text();
@@ -86,8 +87,24 @@ async function loadGameFiles() {
         } catch (error) {
             console.error(`加载文件失败: ${fileName}`, error);
         }
-    }
+    });
 
+    // 等待所有文件加载完成
+    await Promise.all(loadPromises);
+
+    // 获取平台文件名的字母顺序
+    const sortedFileNames = platformFiles.sort();
+
+    // 根据字母顺序排序 platforms
+    const sortedPlatforms = {};
+    sortedFileNames.forEach((fileName) => {
+        sortedPlatforms[fileName] = platforms[fileName];
+    });
+
+    // 替换原始 platforms 为已排序的 platforms
+    platforms = sortedPlatforms;
+
+    // 文件加载完成后才渲染平台图标
     renderPlatformIcons();
 }
 
