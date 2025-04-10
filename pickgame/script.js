@@ -185,7 +185,7 @@ function displayPlatformGames(platform) {
 
     const selectedGamesForPlatform = selectedGames[platform] || [];
 
-    platforms[platform].games.forEach(game => {
+    platforms[platform].games.forEach((game, index) => {
         const gameLabel = document.createElement('label');
         const checkbox = document.createElement('input');
         checkbox.type = 'checkbox';
@@ -197,6 +197,15 @@ function displayPlatformGames(platform) {
             saveSelectedGamesToGlobal(platform);
         };
 
+        // 创建三位数的序号，并设置非常小的字体
+        const gameNumber = String(index + 1).padStart(3, '0');  // 生成序号，保证是三位数
+        const gameNumberSpan = document.createElement('span');
+        //gameNumberSpan.style.fontSize = '0.2em';  // 设置字体大小为小
+        gameNumberSpan.style.fontSize = '9px';  // 设置字体大小为小
+        gameNumberSpan.textContent = `${gameNumber} `;
+
+        // 将序号和复选框添加到标签中
+        gameLabel.appendChild(gameNumberSpan);
         gameLabel.appendChild(checkbox);
         gameLabel.appendChild(document.createTextNode(`${game.name} (${game.sizeKB} KB)`));
 
@@ -259,9 +268,9 @@ document.getElementById('selectAllBtn').onclick = () => {
     saveSelectedGamesToGlobal(currentSelectedPlatform);
 };
 
-
 // 导出按钮处理
 document.getElementById('exportBtn').onclick = () => {
+    // 需要引：<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.7.1/jszip.min.js"></script>
     const zip = new JSZip();
     const date = new Date().toISOString().split('T')[0];  // 获取当前日期
 

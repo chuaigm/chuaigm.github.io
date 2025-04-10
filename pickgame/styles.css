@@ -22,11 +22,35 @@ body {
     color: white;
     padding: 10px;
     text-align: center;
-    z-index: 5;
+    z-index: 10;
     display: flex;          /* 采用 Flexbox 布局 */ 
     flex-direction: column; /* 使子元素垂直排列  */
     align-items: center;
     /*margin-left: 60px;  留出左侧可伸缩栏的空间 */
+}
+
+/* 侧边栏拉伸按钮 */
+#header #toggleSidebarBtn {
+    background-color: #333;
+    color: white;
+    border: none;
+    font-size: 30px;
+    height: var(--top-margin);
+    width: var(--sidebar-width);
+    cursor: pointer;
+    z-index: 15;
+    position: fixed;
+    top: 0;
+    left: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: transform 0.3s ease; /* 添加平滑过渡 */
+}
+
+/* 添加类来实现按钮的左右镜像 */
+#header #toggleSidebarBtn.mirrored {
+    transform: scaleX(-1); /* 镜像反转按钮 */
 }
 
 #spaceInfo {
@@ -59,7 +83,7 @@ body {
     color: white;
     transition: width 0.3s;     /* 宽度变化时会有平滑的过渡效果 */
     overflow-y: auto;       /* 如果侧边栏内容超出高度，会显示垂直滚动条 */
-    z-index: 10;
+    z-index: 5;
     display: flex;
     flex-direction: column;
     align-items: center;
@@ -84,30 +108,6 @@ body {
     cursor: pointer;
 }
 
-/* 侧边栏拉伸按钮 */
-#sidebar #toggleSidebarBtn {
-    background-color: #222;
-    color: white;
-    border: none;
-    font-size: 30px;
-    height: var(--top-margin);
-    width: var(--sidebar-width);
-    cursor: pointer;
-    z-index: 15;
-    position: absolute;
-    top: 0;
-    left: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    transition: transform 0.3s ease; /* 添加平滑过渡 */
-}
-
-/* 添加类来实现按钮的左右镜像 */
-#sidebar #toggleSidebarBtn.mirrored {
-    transform: scaleX(-1); /* 镜像反转按钮 */
-}
-
 #mainContent {
     margin-left: var(--sidebar-width); /* 保持主内容区域与左侧面板对齐 */
     padding-top: var(--top-margin); /* 留出顶部空间 */
@@ -120,7 +120,10 @@ body {
 }
 
 #gameList {
-    padding: 20px;
+    padding-left: 2px;     /* 左侧 */
+    padding-top: 20px;     /* 上方 */
+    padding-right: 20px;   /* 右侧 */
+    padding-bottom: 20px;  /* 下方 */
 }
 
 #gameList label {
