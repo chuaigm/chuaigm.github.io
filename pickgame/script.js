@@ -14,6 +14,7 @@ let selectedPlatformSpace = {};
 // 读取指定平台的txt文件
 async function loadGameFiles() {
     const platformFiles = [
+        '3do.txt',
         'atari2600.txt',
         'atari5200.txt',
         'atari7800.txt',
@@ -40,6 +41,7 @@ async function loadGameFiles() {
         'naomi.txt',
         'nds.txt',
         'neogeo.txt',
+        'neogeocd.txt',
         'ngpc.txt',
         'pcengine.txt',
         'pcenginecd.txt',
@@ -250,8 +252,8 @@ document.getElementById('selectAllBtn').onclick = () => {
         }
     });
 
-    // 更新按钮状态和文本
-    document.getElementById('selectAllBtn').textContent = isSelectAll ? '全不选' : '全选';
+    // 更新按钮状态和文本，这个不维护了，在不同平台切换的时候，想准确显示比较复杂，现在只显示全点
+    //document.getElementById('selectAllBtn').textContent = isSelectAll ? '全不选' : '全选';
 
     // 保存全选状态到全局变量
     saveSelectedGamesToGlobal(currentSelectedPlatform);
@@ -267,18 +269,29 @@ document.getElementById('exportBtn').onclick = () => {
     Object.keys(selectedGames).forEach(platform => {
         const selectedGamesForPlatform = selectedGames[platform];
 
+        // 如果该平台没有选择任何游戏，跳过该平台
+        if (selectedGamesForPlatform.length === 0) {
+            return;  // 不做任何处理，跳过
+        }
+
+        // 拼接每个平台的游戏数据，使用 "\t" 隔开游戏名和容量
         const platformData = selectedGamesForPlatform.map(gameName => {
-            return `${gameName} (${platforms[platform].games.find(g => g.name === gameName).sizeKB} KB)`;
+            const game = platforms[platform].games.find(g => g.name === gameName);
+            return `${gameName}\t( ${game.sizeKB} KB)`;  // 使用制表符 \t 隔开
         }).join('\n');
 
-        zip.file(`${platform.replace('.txt', '')}_selected_games.txt`, platformData);
+        // 使用原始平台文件名作为文本文件名
+        const platformFileName = platform;
+
+        // 将平台数据添加到 zip 中
+        zip.file(platformFileName, platformData);
     });
 
     // 创建下载链接
     zip.generateAsync({ type: "blob" }).then(function(content) {
         const link = document.createElement('a');
         link.href = URL.createObjectURL(content);
-        link.download = `game_list_${date}.zip`;
+        link.download = `game_list_${date}.zip`;  // 生成的 zip 文件名称
         link.click();
     });
 };
