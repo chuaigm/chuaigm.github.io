@@ -3,7 +3,7 @@
 :root {
     --top-margin: 70px;             /* 顶部固定区域的高度 */
     --ico-width: 40px;              /* 图标的宽度 */
-    --sidebar-width: 60px;          /* 侧边栏收起时的宽度 */
+    --sidebar-width: 50px;          /* 侧边栏收起时的宽度 */
     --sidebar-width-expand: 160px;  /* 侧边栏展开时的宽度 */
 }
 
@@ -28,7 +28,6 @@ body {
     align-items: center;
     /*margin-left: 60px;  留出左侧可伸缩栏的空间 */
 }
-
 /* 侧边栏拉伸按钮 */
 #header #toggleSidebarBtn {
     background-color: #333;
@@ -47,7 +46,6 @@ body {
     justify-content: center;
     transition: transform 0.3s ease; /* 添加平滑过渡 */
 }
-
 /* 添加类来实现按钮的左右镜像 */
 #header #toggleSidebarBtn.mirrored {
     transform: scaleX(-1); /* 镜像反转按钮 */
@@ -82,6 +80,7 @@ body {
     background-color: #222;
     color: white;
     transition: width 0.3s;     /* 宽度变化时会有平滑的过渡效果 */
+    overflow-x: hidden;       /* 如果侧边栏内容超出高度，会显示垂直滚动条 */
     overflow-y: auto;       /* 如果侧边栏内容超出高度，会显示垂直滚动条 */
     z-index: 5;
     display: flex;
@@ -98,14 +97,24 @@ body {
     grid-template-columns: repeat(3, 1fr);      /* 设置三列的网格布局，每列宽度相等 */
     gap: 10px;
     padding: 10px;
-    padding: 10px;
     margin-top: var(--top-margin);       /* 将图标与按钮分开 */
+}
+/* 侧边栏收起时图标添加左边距 */
+#sidebar:not(.open) #platformIcons {
+    /* margin-left: 10px;   当侧边栏收起时，图标距离左侧 px */
+    display: grid;
+    grid-template-columns: repeat(1, 1fr);      /* 设置三列的网格布局，每列宽度相等 */
+    /*gap: 10px;
+    padding: 10px;*/
+    margin-top: var(--top-margin);       /* 将图标与按钮分开 */
+    margin-right: 5px;       /* 将图标与按钮分开 */
 }
 /* 侧边栏中图标 */
 #sidebar img {
     width: var(--ico-width);
     height: var(--ico-width);
     cursor: pointer;
+    transition: margin-left 0.3s;  /* 添加平滑过渡效果 */
 }
 
 #mainContent {

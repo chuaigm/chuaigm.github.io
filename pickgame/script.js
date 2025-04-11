@@ -155,7 +155,7 @@ function renderPlatformIcons() {
         if (!document.getElementById('sidebar').classList.contains('open') && currentSelectedPlatform != platform) {
             icon.style.display = 'none';  // 如果收起侧边栏且平台未选中，隐藏图标
         } else {
-            icon.style.display = 'inline-block';  // 否则，显示平台图标
+            icon.style.display = 'grid';  // 否则，显示平台图标
         }
 
         platformIconsDiv.appendChild(icon);
