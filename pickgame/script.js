@@ -135,10 +135,27 @@ function renderPlatformIcons() {
     platformIconsDiv.innerHTML = '';  // 清空当前内容
 
     Object.keys(platforms).forEach(platform => {
+        const iconContainer = document.createElement('div');
+        iconContainer.classList.add('platform-icon-container');
+
+        // 判断当前平台是否为被选中
+        if (platform === currentSelectedPlatform) {
+            iconContainer.classList.add('selected');  // 为当前选中的平台添加 selected 类
+        }
+
         const icon = document.createElement('img');
         icon.src = `plat_pic/${platform.replace('.txt', '.jpg')}`;  // 图标路径
         icon.alt = platform;
         icon.title = platform;
+
+        const overlay = document.createElement('div');
+        overlay.classList.add('overlay');
+        const cross = document.createElement('div');
+        cross.classList.add('cross');
+        overlay.appendChild(cross);
+
+        iconContainer.appendChild(icon);
+        iconContainer.appendChild(overlay);
 
         // 记录当前点击的平台
         icon.onclick = () => {
@@ -152,13 +169,21 @@ function renderPlatformIcons() {
             }
         };
 
+        // 判断平台是否被选择，并显示灰色层
         if (!document.getElementById('sidebar').classList.contains('open') && currentSelectedPlatform != platform) {
             icon.style.display = 'none';  // 如果收起侧边栏且平台未选中，隐藏图标
+            overlay.style.display = 'none';  // 选中平台或已分配空间时，隐藏灰色层
         } else {
             icon.style.display = 'grid';  // 否则，显示平台图标
+            // 如果平台未被选中且 selectedPlatformSpace[platform] <= 0，显示灰色层和叉号
+            if (selectedPlatformSpace[platform] <= 0) {
+                overlay.style.display = 'flex';  // 显示灰色半透明层
+            } else {
+                overlay.style.display = 'none';  // 选中平台或已分配空间时，隐藏灰色层
+            }
         }
 
-        platformIconsDiv.appendChild(icon);
+        platformIconsDiv.appendChild(iconContainer);
     });
 }
 
@@ -195,6 +220,7 @@ function displayPlatformGames(platform) {
         checkbox.onchange = () => {
             updateSelectedSpace(platform, game.name, checkbox.checked);
             saveSelectedGamesToGlobal(platform);
+            renderPlatformIcons();  // 更新平台图标的显示状态
         };
 
         // 创建三位数的序号，并设置非常小的字体
@@ -266,6 +292,7 @@ document.getElementById('selectAllBtn').onclick = () => {
 
     // 保存全选状态到全局变量
     saveSelectedGamesToGlobal(currentSelectedPlatform);
+    renderPlatformIcons();  // 更新平台图标的显示状态
 };
 
 // 导出按钮处理

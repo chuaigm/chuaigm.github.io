@@ -103,11 +103,20 @@ body {
 #sidebar:not(.open) #platformIcons {
     /* margin-left: 10px;   当侧边栏收起时，图标距离左侧 px */
     display: grid;
-    grid-template-columns: repeat(1, 1fr);      /* 设置三列的网格布局，每列宽度相等 */
+    grid-template-columns: 1fr;  /* 只显示一列 */
     /*gap: 10px;
     padding: 10px;*/
     margin-top: var(--top-margin);       /* 将图标与按钮分开 */
     margin-right: 5px;       /* 将图标与按钮分开 */
+}
+/* 侧边栏收起时显示的图标 */
+#sidebar:not(.open) #platformIcons .platform-icon-container {
+    display: none;  /* 默认隐藏所有图标 */
+}
+
+/* 显示当前选中的图标 */
+#sidebar:not(.open) #platformIcons .platform-icon-container.selected {
+    display: block;  /* 仅显示当前选中的图标 */
 }
 /* 侧边栏中图标 */
 #sidebar img {
@@ -115,6 +124,62 @@ body {
     height: var(--ico-width);
     cursor: pointer;
     transition: margin-left 0.3s;  /* 添加平滑过渡效果 */
+}
+
+/* 为平台图标的容器添加相对定位 */
+#sidebar .platform-icon-container {
+    position: relative;
+    width: var(--ico-width);
+    height: var(--ico-width);
+}
+
+/* 灰色半透明层 */
+#sidebar .platform-icon-container .overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.5); /* 去除黑色背景 */
+    /*display: none;  默认隐藏，只有当平台未选择时才显示 */
+    justify-content: center;
+    align-items: center;
+    text-align: center;
+    pointer-events: none; /* 确保不阻挡点击事件 */
+}
+
+/* 画叉号 */
+#sidebar .platform-icon-container .overlay .cross {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    pointer-events: none; /* 防止干扰图标的点击 */
+}
+
+#sidebar .platform-icon-container .overlay .cross::before,
+#sidebar .platform-icon-container .overlay .cross::after {
+    content: "";
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 3px; /* 设置较细的线条 */
+    height: 100%;
+    background-color: white;
+    transform-origin: center;
+    transform: translate(-50%, -50%);
+}
+
+#sidebar .platform-icon-container .overlay .cross::before {
+    transform: translate(-50%, -50%) rotate(45deg); /* 画第一条对角线 */
+}
+
+#sidebar .platform-icon-container .overlay .cross::after {
+    transform: translate(-50%, -50%) rotate(-45deg); /* 画第二条对角线 */
 }
 
 #mainContent {
