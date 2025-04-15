@@ -204,3 +204,102 @@ body {
     display: block;
     margin: 5px 0;
 }
+
+/* 帮助按钮 
+#helpBtn {
+    background-color: #4CAF50;  绿色按钮 
+    color: white;
+    padding: 10px 15px;
+    margin-left: 10px;
+    border: none;
+    cursor: pointer;
+}
+
+#helpBtn:hover {
+    background-color: #45a049;  鼠标悬停时的颜色 
+}
+*/
+
+/* 帮助弹出框样式 */
+.modal {
+    display: none; /* 初始时隐藏 */
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: rgba(0, 0, 0, 0.5); /* 半透明背景 */
+    justify-content: center;
+    align-items: center;
+    z-index: 20;
+}
+
+.modal-content {
+    background-color: white;
+    padding: 20px;
+    max-width: 500px;
+    width: 100%;
+    max-height: 80%;
+    overflow-y: auto; /* 内容过多时，允许垂直滚动 */
+    border-radius: 10px;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.2);
+}
+
+.modal-content h2 {
+    margin-top: 0;
+}
+
+.modal-content ul {
+    list-style-type: decimal;
+    margin: 0;
+    padding-left: 20px;
+}
+
+.modal-content button {
+    background-color: #007BFF;
+    color: white;
+    padding: 10px 20px;
+    border: none;
+    cursor: pointer;
+    margin-top: 20px;
+}
+
+.modal-content button:hover {
+    background-color: #0056b3;
+}
+
+/* 表格样式 */
+table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 8px;
+}
+
+th, td {
+    padding: 4px;
+    text-align: center;
+    border: 1px solid #ddd;
+}
+
+th {
+    background-color: #f2f2f2;
+}
+
+tr:nth-child(even) {
+    background-color: #f9f9f9;
+}
+
+/* 帮助标题 */
+/* 设置 .header 为 Flexbox 布局 */
+.help-header {
+    display: flex;
+    justify-content: space-between; /* 使子元素（h2 和 h6）在两端对齐 */
+    align-items: center; /* 垂直居中对齐 */
+    width: 100%; /* 确保其宽度为100% */
+}
+
+/* 调整 h6 的样式 */
+.update-date {
+    font-size: 0.8rem; /* 可以根据需要调整大小 */
+    text-align: right; /* 确保更新日期文本右对齐 */
+}

@@ -332,5 +332,30 @@ document.getElementById('exportBtn').onclick = () => {
     });
 };
 
+// 帮助页面，以及
+document.addEventListener('DOMContentLoaded', function () {
+    // 按钮点击事件
+    const helpBtn = document.getElementById('helpBtn');
+    const closeHelpBtn = document.getElementById('closeHelpBtn');
+    const helpModal = document.getElementById('helpModal');
+
+    // 显示帮助页面
+    helpBtn.addEventListener('click', function () {
+        helpModal.style.display = 'flex';
+    });
+
+    // 关闭帮助页面
+    closeHelpBtn.addEventListener('click', function () {
+        helpModal.style.display = 'none';
+    });
+
+    // 监听 beforeunload 事件
+    window.addEventListener('beforeunload', function (event) {
+        const message = '你有未保存的更改，确定要离开吗？';
+        event.returnValue = message;
+        return message;
+    });
+});
+
 // 初始化
 loadGameFiles();

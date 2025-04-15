@@ -3,21 +3,19 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>游戏平台选择</title>
+    <title>游戏整合选择</title>
     <link rel="stylesheet" href="styles.css">
-    <script>
-        // 监听 beforeunload 事件
-        window.addEventListener('beforeunload', function (event) {
-            // 设置提示信息（这部分提示信息在大多数浏览器中不再显示，自定义信息无效）
-            const message = '你有未保存的更改，确定要离开吗？';
-
-            // 在某些浏览器中，必须设置 returnValue，才能显示提示框
-            event.returnValue = message;
-
-            // 返回自定义消息（但这部分不会在所有浏览器中显示）
-            return message;
-        });
-    </script>
+    //<script>
+    //    // 监听 beforeunload 事件
+    //    window.addEventListener('beforeunload', function (event) {
+    //        // 设置提示信息（这部分提示信息在大多数浏览器中不再显示，自定义信息无效）
+    //        const message = '你有未保存的更改，确定要离开吗？';
+    //        // 在某些浏览器中，必须设置 returnValue，才能显示提示框
+    //        event.returnValue = message;
+    //        // 返回自定义消息（但这部分不会在所有浏览器中显示）
+    //        return message;
+    //    });
+    //</script>
 </head>
 <body>
     <!-- 顶部固定区域 -->
@@ -30,6 +28,7 @@
         <div id="buttons">
             <button id="selectAllBtn">全点</button>
             <button id="exportBtn">导出</button>
+            <button id="helpBtn">帮助</button>
         </div>
         <button id="toggleSidebarBtn">&#9654;</button>
     </div>
@@ -43,6 +42,57 @@
     <!-- 主区域，显示游戏列表 -->
     <div id="mainContent">
         <div id="gameList"></div>
+    </div>
+
+    <!-- 帮助页面弹出框 -->
+    <div id="helpModal" class="modal">
+        <div class="modal-content">
+            <div class="help-header">
+                <h1>帮助信息</h1>
+                <h6 class="update-date">游戏更新日期：20250415</h6>
+            </div>
+            <ul>
+                <li>点击左上角三角箭头，展开游戏平台菜单</li>
+                <li>某个平台未选择游戏时，是叉图标，该平台下有游戏被选择，图标就点亮</li>
+                <li>点击“全点”按钮将该平台下所有游戏全部选择，再次点击即可全部取消选择</li>
+                <li>浏览所有平台，勾选自己需要的游戏，完成后点击“导出”生成压缩包，发送给chuai制作</li>
+                <li>根据所选TF卡，选择不同容量的游戏，所选游戏的总量写在页面最上方“所有总计”</li>
+                <li>不论选择那款TF卡，都需要留20~30GB左右，用来存放其他必要的文件，以及活动空间</li>
+            <table>
+                <thead>
+                    <tr>
+                        <th>容量</th>
+                        <th>实际大小</th>
+                        <th>可选游戏</th>
+                        <th>制作价格</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>256G</td>
+                        <td>232G</td>
+                        <td>210G以下</td>
+                        <td>138元</td>
+                    </tr>
+                    <tr>
+                        <td>512G</td>
+                        <td>466G</td>
+                        <td>440G以下</td>
+                        <td>158元</td>
+                    </tr>
+                    <tr>
+                        <td>1TB</td>
+                        <td>931G</td>
+                        <td>910G以下</td>
+                        <td>198元</td>
+                    </tr>
+                </tbody>
+            </table>
+                <li>如需折腾游戏机，则需将游戏机邮寄给chuai</li>
+                <li>折腾机器的费用 160 元</li>
+            </ul>
+            <button id="closeHelpBtn">确定</button>
+        </div>
     </div>
 
     <script src="script.js"></script>
