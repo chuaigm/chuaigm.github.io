@@ -69,6 +69,8 @@ async function loadGameFiles() {
     selectedPlatformSpace = {};  // 重置平台已选空间
     document.getElementById('selectedSpace').textContent = `当前平台：0.0 GB`;
     document.getElementById('totalSpace').textContent = `所有总计：0.0 GB`;
+    // 开始默认显示帮助
+    helpModal.style.display = 'flex';
 
     // 创建所有加载文件的 promise
     const loadPromises = platformFiles.map(async (fileName) => {
@@ -121,7 +123,7 @@ function parseGameData(data) {
         if (parts.length > 1 && parts[1]) {
             size = parts[1].replace(/[^\d]/g, '');  // 提取数字大小部分
         } else {
-            console.log("error line: ", line);
+            //console.log("error line: ", line);
         }
         const sizeKB = parseInt(size, 10);  // 将容量转换为整数
 
@@ -356,6 +358,104 @@ document.addEventListener('DOMContentLoaded', function () {
         return message;
     });
 });
+
+// 监听“加载”按钮点击事件
+document.getElementById('importBtn').onclick = () => {
+    // 创建一个文件选择器
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = '.zip'; // 限制只接受zip文件
+
+    // 当用户选择文件后触发
+    input.onchange = async (event) => {
+        const file = event.target.files[0];
+        if (!file) return;
+
+        // 在导入已有选择前，需要清空当前内存中的全局变量
+        currentSelectedPlatform = null;
+        totalSpace = 0;
+        //selectedGames = {};
+        //selectedPlatformSpace = {};
+
+        // 使用JSZip读取并解压zip文件
+        const zip = new JSZip();
+        try {
+            const zipContent = await zip.loadAsync(file);
+            // 遍历zip中的所有文件，找到每个平台的txt文件
+            for (const [fileName, zipFile] of Object.entries(zipContent.files)) {
+                if (zipFile.name.endsWith('.txt')) {
+                    const fileData = await zipFile.async('text');
+                    // 根据txt文件的内容更新平台数据
+                    const platformName = fileName;
+                    if (platforms[platformName]) {
+                        const games = parseGameData(fileData); // 解析txt文件内容
+                        const selectedGamesForPlatform = games.map(game => game.name);
+
+                        // 更新全局状态
+                        selectedGames[platformName] = selectedGamesForPlatform;
+                        selectedPlatformSpace[platformName] = games.reduce((sum, game) => sum + game.sizeKB, 0);
+                        
+                        // 更新页面显示
+                        totalSpace = Object.values(selectedPlatformSpace).reduce((sum, space) => sum + space, 0);
+                        document.getElementById('selectedSpace').textContent = `当前平台：${(selectedPlatformSpace[platformName] / 1024 / 1024).toFixed(2)} GB`;
+                        document.getElementById('totalSpace').textContent = `所有总计：${(totalSpace / 1024 / 1024).toFixed(2)} GB`;
+
+                        // 更新平台选择框状态
+                        //updateGameSelectionDisplay();
+                        displayPlatformGames(platformName)
+                    }
+                }
+            }
+            
+        } catch (error) {
+            console.error("文件加载失败", error);
+        }
+        // 更新图标显示
+        renderPlatformIcons()
+    };
+
+    // 触发文件选择框
+    input.click();
+};
+
+/*
+// 更新游戏选择框显示状态
+function updateGameSelectionDisplay() {
+    // 清空当前游戏列表
+    const gameListContainer = document.getElementById('gameList');
+    gameListContainer.innerHTML = '';
+
+    // 遍历所有平台，生成相应的游戏复选框
+    Object.keys(platforms).forEach(platform => {
+        const platformData = platforms[platform];
+        const platformDiv = document.createElement('div');
+        platformDiv.classList.add('platform');
+
+        platformData.games.forEach(game => {
+            const gameDiv = document.createElement('div');
+            gameDiv.classList.add('game');
+
+            const gameCheckbox = document.createElement('input');
+            gameCheckbox.type = 'checkbox';
+            gameCheckbox.dataset.platform = platform;
+            gameCheckbox.dataset.game = game.name;
+
+            // 如果该游戏已被选择，勾选复选框
+            if (selectedGames[platform].includes(game.name)) {
+                gameCheckbox.checked = true;
+            }
+
+            gameDiv.appendChild(gameCheckbox);
+            gameDiv.appendChild(document.createTextNode(game.name));
+            platformDiv.appendChild(gameDiv);
+        });
+
+        gameListContainer.appendChild(platformDiv);
+    });
+}
+*/
+
+
 
 // 初始化
 loadGameFiles();

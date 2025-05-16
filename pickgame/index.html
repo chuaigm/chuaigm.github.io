@@ -29,6 +29,7 @@
             <button id="selectAllBtn">全点</button>
             <button id="exportBtn">导出</button>
             <button id="helpBtn">帮助</button>
+            <button id="importBtn">导入</button>
         </div>
         <button id="toggleSidebarBtn">&#9654;</button>
     </div>
@@ -86,13 +87,37 @@
                         <td>900G以下</td>
                         <td>198元</td>
                     </tr>
+                    <tr>
+                        <td>1.5TB</td>
+                        <td>1.3TB</td>
+                        <td>1.2TB</td>
+                        <td>248元</td>
+                    </tr>
+                    <tr>
+                        <td>2TB</td>
+                        <td>1.86TB</td>
+                        <td>1.8以下</td>
+                        <td>328元</td>
+                    </tr>
                 </tbody>
             </table>
                 <li>如需折腾游戏机，则需将游戏机邮寄给chuai</li>
-                <li>折腾机器的费用约为 160 元</li>
+                <li>折腾机器的费用约为 260 元</li>
                 <li>如有其他需求，可以联系chuai具体沟通商定</li>
             </ul>
             <button id="closeHelpBtn">确定</button>
+        </div>
+    </div>
+
+    <!-- 帮助页面弹出框 -->
+    <div id="warnModal" class="modal">
+        <div class="modal-content">
+            <div class="help-header">
+                <h1>注意！</h1>
+                <h3>导入列表将清空当前页面已有的选择</h3>
+            </div>
+            <button id="closeWarnBtn">清空并导入</button>
+            <button id="returnWarnBtn">取消并返回</button>
         </div>
     </div>
 
