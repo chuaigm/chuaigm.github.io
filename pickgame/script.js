@@ -67,8 +67,8 @@ async function loadGameFiles() {
     selectedGames = {};
     totalSpace = 0;
     selectedPlatformSpace = {};  // 重置平台已选空间
-    document.getElementById('selectedSpace').textContent = `当前平台：0.0 GB`;
-    document.getElementById('totalSpace').textContent = `所有总计：0.0 GB`;
+    document.getElementById('selectedSpace').textContent = `  当前平台:0.0 GB`;
+    document.getElementById('totalSpace').textContent = `所有总计:0.0 GB`;
     // 开始默认显示帮助
     helpModal.style.display = 'flex';
 
@@ -167,7 +167,7 @@ function renderPlatformIcons() {
                 currentSelectedPlatform = platform;
                 displayPlatformGames(platform);
                 // 显示当前平台已选择的空间
-                document.getElementById('selectedSpace').textContent = `当前平台：${(selectedPlatformSpace[platform] / 1024 / 1024).toFixed(2)} GB`;
+                document.getElementById('selectedSpace').textContent = `  当前平台:${(selectedPlatformSpace[platform] / 1024 / 1024).toFixed(2)} GB`;
             }
         };
 
@@ -262,13 +262,13 @@ function updateSelectedSpace(platform, gameName, isSelected) {
     }
 
     // 更新当前平台已选空间显示
-    document.getElementById('selectedSpace').textContent = `当前平台：${(selectedPlatformSpace[platform] / 1024 / 1024).toFixed(2)} GB`;
+    document.getElementById('selectedSpace').textContent = `  当前平台:${(selectedPlatformSpace[platform] / 1024 / 1024).toFixed(2)} GB`;
 
     // 更新所有总计空间计算
     totalSpace = Object.values(selectedPlatformSpace).reduce((sum, space) => sum + space, 0);
 
     const totalSelectedSpaceInGB = (totalSpace / 1024 / 1024).toFixed(2);
-    document.getElementById('totalSpace').textContent = `所有总计：${totalSelectedSpaceInGB} GB`;
+    document.getElementById('totalSpace').textContent = `所有总计:${totalSelectedSpaceInGB} GB`;
 }
 
 // 处理全选和全不选按钮
@@ -410,58 +410,6 @@ document.getElementById('importBtn').onclick = () => {
         if (!file) return;
 
         loadZipFile(file);
-
-        //// 在选择文件之前，清空全局变量，重置平台选择框和空间计数
-        //currentSelectedPlatform = null;
-        //totalSpace = 0;
-        //selectedGames = {}; // 清空已选择的游戏
-        ////selectedPlatformSpace = {} // 清空已选容量计数
-        //Object.keys(selectedPlatformSpace).forEach(platform => {
-        //    selectedPlatformSpace[platform] = 0;
-        //});
-        //// 清空所有平台的 checkbox 选择
-        //const allCheckboxes = document.querySelectorAll('#gameList input[type="checkbox"]');
-        //allCheckboxes.forEach(checkbox => {
-        //    checkbox.checked = false;
-        //});
-        //// 重置显示的空间计数
-        //document.getElementById('selectedSpace').textContent = `当前平台：0.0 GB`;
-        //document.getElementById('totalSpace').textContent = `所有总计：0.0 GB`;
-//
-        //// 使用JSZip读取并解压zip文件
-        //const zip = new JSZip();
-        //try {
-        //    const zipContent = await zip.loadAsync(file);
-        //    // 遍历zip中的所有文件，找到每个平台的txt文件
-        //    for (const [fileName, zipFile] of Object.entries(zipContent.files)) {
-        //        if (zipFile.name.endsWith('.txt')) {
-        //            const fileData = await zipFile.async('text');
-        //            // 根据txt文件的内容更新平台数据
-        //            const platformName = fileName;
-        //            if (platforms[platformName]) {
-        //                const games = parseGameData(fileData); // 解析txt文件内容
-        //                const selectedGamesForPlatform = games.map(game => game.name);
-//
-        //                // 更新全局状态
-        //                selectedGames[platformName] = selectedGamesForPlatform;
-        //                selectedPlatformSpace[platformName] = games.reduce((sum, game) => sum + game.sizeKB, 0);
-        //                
-        //                // 更新页面显示
-        //                totalSpace = Object.values(selectedPlatformSpace).reduce((sum, space) => sum + space, 0);
-        //                document.getElementById('selectedSpace').textContent = `当前平台：${(selectedPlatformSpace[platformName] / 1024 / 1024).toFixed(2)} GB`;
-        //                document.getElementById('totalSpace').textContent = `所有总计：${(totalSpace / 1024 / 1024).toFixed(2)} GB`;
-//
-        //                // 更新平台选择框状态
-        //                displayPlatformGames(platformName)
-        //            }
-        //        }
-        //    }
-        //    
-        //} catch (error) {
-        //    console.error("文件加载失败", error);
-        //}
-        //// 更新图标显示
-        //renderPlatformIcons()
     };
 
     // 触发文件选择框
@@ -491,8 +439,8 @@ async function loadZipFile(filePath) {
         });
         
         // 重置显示的空间计数
-        document.getElementById('selectedSpace').textContent = `当前平台：0.0 GB`;
-        document.getElementById('totalSpace').textContent = `所有总计：0.0 GB`;
+        document.getElementById('selectedSpace').textContent = `  当前平台:0.0 GB`;
+        document.getElementById('totalSpace').textContent = `所有总计:0.0 GB`;
         
         // 遍历 zip 中的所有文件，找到每个平台的 txt 文件
         for (const [fileName, zipFile] of Object.entries(zipContent.files)) {
@@ -509,8 +457,8 @@ async function loadZipFile(filePath) {
 
                     // 更新页面显示
                     totalSpace = Object.values(selectedPlatformSpace).reduce((sum, space) => sum + space, 0);
-                    document.getElementById('selectedSpace').textContent = `当前平台：${(selectedPlatformSpace[platformName] / 1024 / 1024).toFixed(2)} GB`;
-                    document.getElementById('totalSpace').textContent = `所有总计：${(totalSpace / 1024 / 1024).toFixed(2)} GB`;
+                    document.getElementById('selectedSpace').textContent = `  当前平台:${(selectedPlatformSpace[platformName] / 1024 / 1024).toFixed(2)} GB`;
+                    document.getElementById('totalSpace').textContent = `所有总计:${(totalSpace / 1024 / 1024).toFixed(2)} GB`;
 
                     // 更新平台选择框状态
                     displayPlatformGames(platformName);
@@ -523,44 +471,6 @@ async function loadZipFile(filePath) {
     // 更新图标显示
     renderPlatformIcons();
 }
-
-/*
-// 更新游戏选择框显示状态
-function updateGameSelectionDisplay() {
-    // 清空当前游戏列表
-    const gameListContainer = document.getElementById('gameList');
-    gameListContainer.innerHTML = '';
-
-    // 遍历所有平台，生成相应的游戏复选框
-    Object.keys(platforms).forEach(platform => {
-        const platformData = platforms[platform];
-        const platformDiv = document.createElement('div');
-        platformDiv.classList.add('platform');
-
-        platformData.games.forEach(game => {
-            const gameDiv = document.createElement('div');
-            gameDiv.classList.add('game');
-
-            const gameCheckbox = document.createElement('input');
-            gameCheckbox.type = 'checkbox';
-            gameCheckbox.dataset.platform = platform;
-            gameCheckbox.dataset.game = game.name;
-
-            // 如果该游戏已被选择，勾选复选框
-            if (selectedGames[platform].includes(game.name)) {
-                gameCheckbox.checked = true;
-            }
-
-            gameDiv.appendChild(gameCheckbox);
-            gameDiv.appendChild(document.createTextNode(game.name));
-            platformDiv.appendChild(gameDiv);
-        });
-
-        gameListContainer.appendChild(platformDiv);
-    });
-}
-*/
-
 
 
 // 初始化
