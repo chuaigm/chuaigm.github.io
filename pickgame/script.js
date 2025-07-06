@@ -49,6 +49,7 @@ async function loadGameFiles() {
         'pico8.txt',
         'pokemini.txt',
         'ps2.txt',
+        'ps3.txt',
         'psp.txt',
         'psvita.txt',
         'psx.txt',
@@ -60,6 +61,7 @@ async function loadGameFiles() {
         'virtualboy.txt',
         'wii.txt',
         'wiiu.txt',
+        'windows.txt',
         'wonderswan.txt',
         'wonderswancolor.txt'];
 
@@ -408,7 +410,7 @@ document.getElementById('importBtn').onclick = () => {
     input.onchange = async (event) => {
         const file = event.target.files[0];
         if (!file) return;
-
+        console.log("load file path: ", file);
         loadZipFile(file);
     };
 
@@ -421,7 +423,13 @@ async function loadZipFile(filePath) {
     const zip = new JSZip();
     try {
         // 加载 zip 文件
-        const file = await fetch(filePath).then(response => response.blob());
+        // 如果是字符串，表示不是文件对象，需要fetch一下，获取资源中文件对象
+        if (typeof filePath === 'string' || filePath instanceof String) {
+            file = await fetch(filePath).then(response => response.blob());
+        } else {
+            //如果传入的已经是文件对象了
+            file = filePath;
+        }
         const zipContent = await zip.loadAsync(file);
         
         // 清空全局变量，重置平台选择框和空间计数
