@@ -1,7 +1,7 @@
 /* styles.css */
 
 :root {
-    --top-margin: 70px;             /* 顶部固定区域的高度 */
+    --top-margin: 68px;             /* 顶部固定区域的高度 */
     --ico-width: 40px;              /* 图标的宽度 */
     --sidebar-width: 50px;          /* 侧边栏收起时的宽度 */
     --sidebar-width-expand: 160px;  /* 侧边栏展开时的宽度 */
@@ -20,7 +20,7 @@ body {
     right: 0;
     background: #333;
     color: white;
-    padding: 10px;
+    padding: 8px;
     text-align: center;
     z-index: 10;
     display: flex;          /* 采用 Flexbox 布局 */ 
@@ -133,6 +133,14 @@ body {
     height: var(--ico-width);
 }
 
+/* 显示当前选中的图标 */
+#sidebar .platform-icon-container.selected {
+    /*border: 3px solid white;   添加选中时的边框 */
+    /*box-sizing: border-box;   确保边框不影响元素尺寸 */
+    outline: 3px solid white;  /* 使用 outline 而不是 border，确保边框绘制在外部 */
+    /*outline-offset: 2px;   给 outline 增加偏移，使其不贴着图标 */
+}
+
 /* 灰色半透明层 */
 #sidebar .platform-icon-container .overlay {
     position: absolute;
@@ -184,7 +192,7 @@ body {
 
 #mainContent {
     margin-left: var(--sidebar-width); /* 保持主内容区域与左侧面板对齐 */
-    padding-top: var(--top-margin); /* 留出顶部空间 */
+    padding-top: var(--top-margin);  /* 留出顶部空间 */
     overflow-y: auto;
     transition: margin-left 0.3s;
 }
@@ -195,7 +203,7 @@ body {
 
 #gameList {
     padding-left: 2px;     /* 左侧 */
-    padding-top: 20px;     /* 上方 */
+    padding-top: 2px;     /* 上方 */
     padding-right: 20px;   /* 右侧 */
     padding-bottom: 20px;  /* 下方 */
 }

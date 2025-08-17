@@ -165,11 +165,18 @@ function renderPlatformIcons() {
         icon.onclick = () => {
             // 如果当前平台未被选中
             if (currentSelectedPlatform != platform) {
+                // 取消之前选中的平台
+                const previousSelectedIcon = document.querySelector('.platform-icon-container.selected');
+                if (previousSelectedIcon) {
+                    previousSelectedIcon.classList.remove('selected');
+                }
                 // 记录当前平台
                 currentSelectedPlatform = platform;
                 displayPlatformGames(platform);
                 // 显示当前平台已选择的空间
                 document.getElementById('selectedSpace').textContent = `  当前平台:${(selectedPlatformSpace[platform] / 1024 / 1024).toFixed(2)} GB`;
+                // 为当前图标添加选中效果
+                iconContainer.classList.add('selected');
             }
         };
 
