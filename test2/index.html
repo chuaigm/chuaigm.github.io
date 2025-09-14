@@ -3,78 +3,354 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>文件处理工具</title>
+    <title>ZIP文件处理工具</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
     <style>
-        body { font-family: Arial, sans-serif; margin: 20px; }
-        #progress-bar { width: 100%; background-color: #f3f3f3; }
-        #progress { width: 0%; height: 20px; background-color: #4caf50; }
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        
+        body {
+            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+        
+        .container {
+            background-color: white;
+            border-radius: 12px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.15);
+            width: 100%;
+            max-width: 600px;
+            padding: 30px;
+            text-align: center;
+        }
+        
+        h1 {
+            color: #2c3e50;
+            margin-bottom: 20px;
+            font-weight: 600;
+        }
+        
+        .description {
+            color: #7f8c8d;
+            margin-bottom: 30px;
+            line-height: 1.6;
+        }
+        
+        .upload-area {
+            border: 2px dashed #3498db;
+            border-radius: 8px;
+            padding: 30px;
+            margin-bottom: 25px;
+            transition: all 0.3s;
+            background-color: #f8fafc;
+        }
+        
+        .upload-area:hover {
+            background-color: #e8f4ff;
+            border-color: #2980b9;
+        }
+        
+        .upload-icon {
+            font-size: 48px;
+            color: #3498db;
+            margin-bottom: 15px;
+        }
+        
+        .btn {
+            background-color: #3498db;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: 500;
+            transition: background-color 0.3s;
+            display: inline-block;
+            margin-top: 15px;
+        }
+        
+        .btn:hover {
+            background-color: #2980b9;
+        }
+        
+        .btn:disabled {
+            background-color: #bdc3c7;
+            cursor: not-allowed;
+        }
+        
+        .progress-container {
+            margin: 30px 0;
+            display: none;
+        }
+        
+        .progress-info {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 8px;
+        }
+        
+        .progress-label {
+            font-weight: 500;
+            color: #2c3e50;
+        }
+        
+        .progress-percentage {
+            color: #3498db;
+            font-weight: 600;
+        }
+        
+        .progress-bar {
+            height: 12px;
+            background-color: #ecf0f1;
+            border-radius: 6px;
+            overflow: hidden;
+        }
+        
+        .progress-bar-inner {
+            height: 100%;
+            background: linear-gradient(90deg, #3498db, #2ecc71);
+            border-radius: 6px;
+            width: 0%;
+            transition: width 0.3s ease;
+        }
+        
+        .status-message {
+            margin-top: 20px;
+            padding: 12px;
+            border-radius: 6px;
+            display: none;
+        }
+        
+        .status-error {
+            background-color: #ffebee;
+            color: #c62828;
+            display: none;
+        }
+        
+        .status-success {
+            background-color: #e8f5e9;
+            color: #2e7d32;
+            display: none;
+        }
+        
+        .file-name {
+            margin-top: 15px;
+            color: #7f8c8d;
+            font-style: italic;
+        }
+        
+        .instructions {
+            background-color: #f8f9fa;
+            border-left: 4px solid #3498db;
+            padding: 15px;
+            text-align: left;
+            margin-top: 25px;
+            border-radius: 0 4px 4px 0;
+        }
+        
+        .instructions h3 {
+            color: #2c3e50;
+            margin-bottom: 10px;
+        }
+        
+        .instructions ul {
+            padding-left: 20px;
+            color: #7f8c8d;
+        }
+        
+        .instructions li {
+            margin-bottom: 8px;
+        }
     </style>
-    <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
 </head>
 <body>
-    <h1>文件处理工具</h1>
-    <input type="file" id="fileInput" webkitdirectory mozdirectory multiple>
-    <button id="processButton">开始处理</button>
-    <div id="progress-bar" style="display:none;">
-        <div id="progress"></div>
+    <div class="container">
+        <h1>ZIP文件处理工具</h1>
+        <p class="description">上传一个ZIP文件，提取其中的图片并重新组织后下载</p>
+        
+        <div class="upload-area" id="uploadArea">
+            <div class="upload-icon">📁</div>
+            <p>请选择一个包含covers文件夹的ZIP文件</p>
+            <input type="file" id="fileInput" accept=".zip" style="display: none;">
+            <button class="btn" id="selectFileBtn">选择ZIP文件</button>
+            <p class="file-name" id="fileName"></p>
+        </div>
+        
+        <button class="btn" id="processBtn" disabled>处理文件</button>
+        
+        <div class="progress-container" id="progressContainer">
+            <div class="progress-info">
+                <span class="progress-label">处理进度</span>
+                <span class="progress-percentage" id="progressPercentage">0%</span>
+            </div>
+            <div class="progress-bar">
+                <div class="progress-bar-inner" id="progressBar"></div>
+            </div>
+        </div>
+        
+        <div class="status-message status-error" id="errorMessage"></div>
+        <div class="status-message status-success" id="successMessage"></div>
+        
+        <div class="instructions">
+            <h3>使用说明：</h3>
+            <ul>
+                <li>ZIP文件中必须包含名为"covers"的文件夹</li>
+                <li>"covers"文件夹中应包含JPG格式的图片文件</li>
+                <li>处理完成后，将下载一个新的ZIP文件</li>
+                <!--li>新ZIP文件中每个图片都会有自己的文件夹，图片被重命名为cover.jpg</li-->
+            </ul>
+        </div>
     </div>
-    <a id="downloadLink" style="display:none;" href="#">下载ZIP文件</a>
 
     <script>
-        document.getElementById('processButton').addEventListener('click', function () {
+        document.addEventListener('DOMContentLoaded', function() {
             const fileInput = document.getElementById('fileInput');
-            if (fileInput.files.length === 0) {
-                alert('请选择一个目录');
-                return;
-            }
-
-            // 获取平台目录中的文件
-            const files = Array.from(fileInput.files);
-            const covers = files.filter(file => file.webkitRelativePath.includes('covers'));
-
-            if (covers.length === 0) {
-                alert('covers文件夹不存在');
-                return;
-            }
-
-            // 显示进度条
-            document.getElementById('progress-bar').style.display = 'block';
-            const progress = document.getElementById('progress');
-            const zip = new JSZip();
-            let processedCount = 0;
-
-            covers.forEach((file, index) => {
-                const fileName = file.name;
-                const folderName = file.webkitRelativePath.split('/')[1]; // 获取文件夹名
-                const folderPath = folderName ? folderName : 'defaultFolder';
-
-                // 读取文件内容
-                const reader = new FileReader();
-                reader.onload = function (e) {
-                    const content = e.target.result;
-
-                    // 在zip中创建文件夹并将文件添加进去
-                    zip.folder(folderPath).file('cover.jpg', content);
-
-                    // 更新进度条
-                    processedCount++;
-                    const progressPercentage = (processedCount / covers.length) * 100;
-                    progress.style.width = `${progressPercentage}%`;
-
-                    // 处理完毕后
-                    if (processedCount === covers.length) {
-                        zip.generateAsync({ type: 'blob' }).then(function (blob) {
-                            const url = URL.createObjectURL(blob);
-                            const downloadLink = document.getElementById('downloadLink');
-                            downloadLink.href = url;
-                            downloadLink.download = 'platform.zip';
-                            downloadLink.style.display = 'inline-block';
-                            alert('文件处理完成，点击下载按钮下载ZIP文件');
-                        });
-                    }
-                };
-                reader.readAsArrayBuffer(file);
+            const selectFileBtn = document.getElementById('selectFileBtn');
+            const processBtn = document.getElementById('processBtn');
+            const fileName = document.getElementById('fileName');
+            const progressContainer = document.getElementById('progressContainer');
+            const progressBar = document.getElementById('progressBar');
+            const progressPercentage = document.getElementById('progressPercentage');
+            const errorMessage = document.getElementById('errorMessage');
+            const successMessage = document.getElementById('successMessage');
+            
+            let selectedFile = null;
+            
+            // 点击选择文件按钮触发文件输入
+            selectFileBtn.addEventListener('click', function() {
+                fileInput.click();
             });
+            
+            // 文件选择变化
+            fileInput.addEventListener('change', function(e) {
+                if (this.files.length > 0) {
+                    selectedFile = this.files[0];
+                    fileName.textContent = selectedFile.name;
+                    processBtn.disabled = false;
+                    hideMessages();
+                }
+            });
+            
+            // 处理按钮点击事件
+            processBtn.addEventListener('click', function() {
+                if (!selectedFile) {
+                    showError('请先选择一个ZIP文件');
+                    return;
+                }
+                
+                processZipFile(selectedFile);
+            });
+            
+            // 处理ZIP文件
+            async function processZipFile(file) {
+                hideMessages();
+                progressContainer.style.display = 'block';
+                processBtn.disabled = true;
+                
+                try {
+                    // 读取ZIP文件
+                    const zip = new JSZip();
+                    const data = await zip.loadAsync(file);
+                    
+                    // 检查是否存在covers文件夹
+                    const coversFolder = data.folder('covers');
+                    if (!coversFolder) {
+                        throw new Error('covers文件夹不存在');
+                    }
+                    
+                    // 获取所有JPG文件
+                    const jpgFiles = [];
+                    coversFolder.forEach((relativePath, file) => {
+                        if (!file.dir && relativePath.toLowerCase().endsWith('.jpg')) {
+                            jpgFiles.push({
+                                name: relativePath,
+                                file: file
+                            });
+                        }
+                    });
+                    
+                    if (jpgFiles.length === 0) {
+                        throw new Error('covers文件夹中没有找到JPG文件');
+                    }
+                    
+                    // 创建新的ZIP文件
+                    const newZip = new JSZip();
+                    
+                    // 处理每个JPG文件
+                    for (let i = 0; i < jpgFiles.length; i++) {
+                        const jpgFile = jpgFiles[i];
+                        
+                        // 更新进度
+                        updateProgress(i, jpgFiles.length);
+                        
+                        // 获取文件名（不含扩展名）
+                        const fileNameWithoutExt = jpgFile.name.replace(/\.jpg$/i, '');
+                        
+                        // 读取图片数据
+                        const imageData = await jpgFile.file.async('blob');
+                        
+                        // 在新ZIP中创建文件夹并添加重命名的图片
+                        const folder = newZip.folder(fileNameWithoutExt);
+                        folder.file('cover.jpg', imageData);
+                    }
+                    
+                    // 完成进度
+                    updateProgress(jpgFiles.length, jpgFiles.length);
+                    
+                    // 生成新的ZIP文件
+                    const content = await newZip.generateAsync({type: 'blob'});
+                    
+                    // 触发下载
+                    const originalName = file.name.replace(/\.zip$/i, '');
+                    saveAs(content, `${originalName}_processed.zip`);
+                    
+                    // 显示成功消息
+                    showSuccess(`处理完成！成功处理了 ${jpgFiles.length} 个JPG文件`);
+                    
+                } catch (error) {
+                    showError(error.message);
+                    progressContainer.style.display = 'none';
+                }
+                
+                processBtn.disabled = false;
+            }
+            
+            // 更新进度条
+            function updateProgress(current, total) {
+                const percent = Math.round((current / total) * 100);
+                progressBar.style.width = `${percent}%`;
+                progressPercentage.textContent = `${percent}%`;
+            }
+            
+            // 显示错误消息
+            function showError(message) {
+                errorMessage.textContent = message;
+                errorMessage.style.display = 'block';
+                successMessage.style.display = 'none';
+            }
+            
+            // 显示成功消息
+            function showSuccess(message) {
+                successMessage.textContent = message;
+                successMessage.style.display = 'block';
+                errorMessage.style.display = 'none';
+            }
+            
+            // 隐藏所有消息
+            function hideMessages() {
+                errorMessage.style.display = 'none';
+                successMessage.style.display = 'none';
+            }
         });
     </script>
 </body>
