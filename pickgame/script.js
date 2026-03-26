@@ -15,8 +15,6 @@ let selectedPlatformSpace = {};
 async function loadGameFiles() {
     const platformFiles = [
         '3do.txt',
-        'atari2600.txt',
-        'atari5200.txt',
         'atari7800.txt',
         'atarilynx.txt',
         'cps1.txt',
@@ -26,7 +24,6 @@ async function loadGameFiles() {
         'dreamcast.txt',
         'famicom.txt',
         'fbneo.txt',
-        'gameandwatch.txt',
         'gamegear.txt',
         'gb.txt',
         'gba.txt',
@@ -45,7 +42,6 @@ async function loadGameFiles() {
         'ngpc.txt',
         'pcengine.txt',
         'pcenginecd.txt',
-        'pcfx.txt',
         'pico8.txt',
         'pokemini.txt',
         'ps2.txt',
@@ -55,7 +51,6 @@ async function loadGameFiles() {
         'psx.txt',
         'saturn.txt',
         'sega32x.txt',
-        'segacd.txt',
         'sfc.txt',
         'switch.txt',
         'virtualboy.txt',
