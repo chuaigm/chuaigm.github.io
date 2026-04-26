@@ -43,7 +43,6 @@ async function loadGameFiles() {
         'pcengine.txt',
         'pcenginecd.txt',
         'pico8.txt',
-        'pokemini.txt',
         'ps2.txt',
         'ps3.txt',
         'psp.txt',
@@ -58,7 +57,8 @@ async function loadGameFiles() {
         'wiiu.txt',
         'windows.txt',
         'wonderswan.txt',
-        'wonderswancolor.txt'];
+        'wonderswancolor.txt',
+        'xbox.txt'];
 
     // 清空选中的游戏列表和总空间
     selectedGames = {};
