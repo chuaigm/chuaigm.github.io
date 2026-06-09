@@ -75,6 +75,24 @@
     #downloadLink:hover {
       text-decoration: underline;
     }
+    .top-bar {
+      display: grid;
+      grid-template-columns: 1fr auto 1fr;
+      align-items: center;
+      margin-bottom: 20px;
+    }
+    .top-text {
+      font-size: 22px;
+      font-weight: bold;
+    }
+    .top-text.left {
+      text-align: right;
+      padding-right: 20px;
+    }
+    .top-text.right {
+      text-align: left;
+      padding-left: 20px;
+    }
   </style>
   <!--script src="https://cdn.jsdelivr.net/npm/chart.js"></script--> <!-- 引入 Chart.js -->
   <!--script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels"></script--> <!-- 引入 datalabels 插件 -->
@@ -86,9 +104,11 @@
   <!-- 下载链接 -->
   <a id="downloadLink" href="chuai_gamelist_20250326.zip" download>下载样例</a>
 
-  <h1>请选多个游戏平台文件</h1>
-  <h2>(txt格式)</h2>
-  <button id="chooseFileBtn">选择文件</button>
+  <div class="top-bar">
+    <span class="top-text left">请选游戏平台文件</span>
+    <button id="chooseFileBtn">选择文件</button>
+    <span class="top-text right">(可多个txt格式)</span>
+  </div>
 
   <div id="result"></div>
 
@@ -224,8 +244,8 @@
       // 获取宽度和高度中的较小值
       const chart_R = Math.min(width, height);
       //chart_width = width/2;
-      ctx.width = chart_R;  // 设置canvas的宽度
-      ctx.height = chart_R; // 
+      ctx.width = chart_R * 0.95;  // 设置canvas的宽度
+      ctx.height = chart_R * 0.95; // 
 
       document.getElementById('result').appendChild(ctx);
 
@@ -245,6 +265,9 @@
         },
         options: {
           responsive: true,
+          layout: {
+            padding: 40
+          },
           plugins: {
             legend: {
               //position: 'top',
@@ -266,6 +289,10 @@
                 return context.dataset.data[context.dataIndex] > (Math.max(...context.dataset.data) / 100);
               },
               color: 'black',
+              clamp: true,
+              anchor: 'end',
+              align: 'center',
+              offset: 12,
               font: {
                 weight: 'bold',
                 size: 14
