@@ -58,9 +58,9 @@ async function loadGameFiles() {
         'virtualboy.txt',
         'wii.txt',
         'wiiu.txt',
-        'windows.txt',
         'wonderswan.txt',
         'wonderswancolor.txt',
+        'xbox360.txt',
         'xbox.txt'];
 
     // 清空选中的游戏列表和总空间
