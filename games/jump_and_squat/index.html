@@ -1,0 +1,770 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>上下躲避 · 跑酷 (手柄支持)</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            user-select: none;
+        }
+        body {
+            background: #0b1a2f;
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-family: 'Courier New', Courier, monospace;
+        }
+        .game-container {
+            background: #1e2f4a;
+            padding: 20px 20px 18px 20px;
+            border-radius: 24px;
+            box-shadow: 0 16px 32px rgba(0, 0, 0, 0.6);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        canvas {
+            display: block;
+            width: 800px;
+            height: 320px;
+            border-radius: 16px;
+            box-shadow: inset 0 0 20px #00000055, 0 6px 12px black;
+        }
+        .status-bar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-top: 14px;
+            width: 800px;
+            color: #c4e2f0;
+            font-weight: bold;
+            font-size: 1.1rem;
+            text-shadow: 0 2px 4px black;
+            gap: 6px;
+        }
+        .status-bar .score-box,
+        .status-bar .high-score-box,
+        .status-bar .time-box {
+            background: #0d1b2a;
+            padding: 7px 14px;
+            border-radius: 40px;
+            box-shadow: inset 0 1px 6px #00000088, 0 4px 4px #00000033;
+            letter-spacing: 1px;
+            white-space: nowrap;
+            font-size: 1rem;
+        }
+        .status-bar .high-score-box {
+            background: #2a3d5c;
+            color: #ffd966;
+        }
+        .status-bar .time-box {
+            background: #1d3a2f;
+            color: #9bf6b0;
+        }
+        .gamepad-icon {
+            font-size: 1.3rem;
+            background: #0d1b2a;
+            padding: 5px 12px;
+            border-radius: 30px;
+            box-shadow: inset 0 1px 6px #00000088, 0 4px 4px #00000033;
+            color: #7ee8a2;
+            display: none;
+            line-height: 1;
+            white-space: nowrap;
+        }
+        .gamepad-icon.connected {
+            display: inline-block;
+        }
+        .key-hint {
+            display: flex;
+            gap: 8px;
+            color: #aac9e0;
+            font-size: 0.78rem;
+            background: #0d1b2a90;
+            padding: 6px 12px;
+            border-radius: 40px;
+            white-space: nowrap;
+        }
+        .key-hint kbd {
+            background: #f0f3f8;
+            color: #0b1a2f;
+            border-radius: 5px;
+            padding: 1px 6px;
+            font-weight: bold;
+            margin: 0 1px;
+            box-shadow: 0 2px 0 #5a6f88;
+        }
+    </style>
+</head>
+<body>
+<div class="game-container">
+    <canvas id="gameCanvas" width="800" height="320"></canvas>
+    <div class="status-bar">
+        <span class="score-box">🏆 分数: <span id="scoreDisplay">0</span></span>
+        <span class="high-score-box">📀 最高分: <span id="highScoreDisplay">0</span></span>
+        <span class="time-box">⏱️ 累计: <span id="timeDisplay">0</span> 分</span>
+        <span class="gamepad-icon" id="gamepadIcon">🎮</span>
+        <div class="key-hint">
+            <span><kbd>↑</kbd>跳</span>
+            <span><kbd>↓</kbd>蹲</span>
+            <span><kbd>空格</kbd>加速</span>
+            <span><kbd>R</kbd>重开</span>
+        </div>
+    </div>
+</div>
+<script>
+    (function() {
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const scoreSpan = document.getElementById('scoreDisplay');
+        const highScoreSpan = document.getElementById('highScoreDisplay');
+        const timeSpan = document.getElementById('timeDisplay');
+        const gamepadIcon = document.getElementById('gamepadIcon');
+
+        // ---------- 固定尺寸参数 ----------
+        const W = 800, H = 320;
+
+        // ---------- 玩家参数 ----------
+        const PLAYER_WIDTH = 36;
+        const PLAYER_HEIGHT = 62;
+        const DUCK_HEIGHT = 30;
+        const PLAYER_X = 100;
+
+        // 物理参数
+        const GRAVITY = 1.0;
+        const JUMP_FORCE = -15;
+
+        // 三种垂直状态
+        let playerState = 'run';
+        let playerY = H - PLAYER_HEIGHT;
+        let jumpVelocity = 0;
+
+        // 玩家碰撞箱
+        function getPlayerRect() {
+            let h = (playerState === 'duck') ? DUCK_HEIGHT : PLAYER_HEIGHT;
+            let y;
+            if (playerState === 'duck') {
+                y = H - DUCK_HEIGHT;
+            } else {
+                y = playerY;
+            }
+            return { x: PLAYER_X, y: y, w: PLAYER_WIDTH, h: h };
+        }
+
+        // ---------- 障碍物 ----------
+        let obstacles = [];
+        const OBSTACLE_WIDTH = 32;
+        const OBSTACLE_HEIGHT = 70;
+
+        const TOP_BOTTOM_MIN = 260;
+        const TOP_BOTTOM_MAX = 284;
+
+        let score = 0;
+        let highScore = 0;
+        let gameOver = false;
+        let baseSpeed = 4.2;
+        let speed = baseSpeed;
+        const BOOST_SPEED = 8.0;
+
+        let bgOffset = 0;
+        const BG_SPEED_FACTOR = 0.9;
+
+        // ---------- 累计游戏时间 ----------
+        let totalPlayTime = 0;
+        let sessionStartTime = 0;
+        let isPlaying = false;
+
+        let keys = {
+            ArrowUp: false,
+            ArrowDown: false,
+            Space: false
+        };
+
+        // ---------- 输入缓冲 ----------
+        let jumpBufferTimer = 0;
+        let duckBufferTimer = 0;
+        const BUFFER_DURATION = 8;
+
+        // ---------- 键盘按键锁定 (防止按住连续触发) ----------
+        let keyboardUpLocked = false;    // 键盘 ↑ 是否已锁定（按住时不再触发跳跃）
+        let keyboardDownLocked = false;  // 键盘 ↓ 是否已锁定
+
+        // ---------- 手柄状态 ----------
+        let gamepadConnected = false;
+        let gamepadIndex = -1;
+        let gamepadRB = false;
+        let prevGamepadButtons = {
+            DPadUp: false,
+            DPadDown: false,
+            RB: false,
+            Start: false
+        };
+        // 手柄方向键锁定状态
+        let gamepadUpLocked = false;
+        let gamepadDownLocked = false;
+
+        // 最高分
+        function loadHighScore() {
+            try {
+                const saved = localStorage.getItem('parkourHighScore');
+                if (saved) {
+                    highScore = parseInt(saved, 10) || 0;
+                }
+            } catch (e) {
+                highScore = 0;
+            }
+            highScoreSpan.innerText = highScore;
+        }
+
+        function saveHighScore() {
+            try {
+                localStorage.setItem('parkourHighScore', highScore);
+            } catch (e) {}
+        }
+
+        function updateHighScore() {
+            if (score > highScore) {
+                highScore = score;
+                highScoreSpan.innerText = highScore;
+                saveHighScore();
+            }
+        }
+
+        // 累计时间
+        function loadTotalTime() {
+            try {
+                const saved = localStorage.getItem('parkourTotalTime');
+                if (saved) {
+                    totalPlayTime = parseFloat(saved) || 0;
+                }
+            } catch (e) {
+                totalPlayTime = 0;
+            }
+            updateTimeDisplay();
+        }
+
+        function saveTotalTime() {
+            try {
+                localStorage.setItem('parkourTotalTime', totalPlayTime.toFixed(1));
+            } catch (e) {}
+        }
+
+        function updateTimeDisplay() {
+            const minutes = totalPlayTime / 60;
+            timeSpan.innerText = minutes.toFixed(1);
+        }
+
+        // ---------- 键盘事件 ----------
+        window.addEventListener('keydown', (e) => {
+            const key = e.key;
+            if (key === 'ArrowUp' || key === 'ArrowDown' || key === ' ') {
+                e.preventDefault();
+            }
+
+            if (key === 'ArrowUp') {
+                keys.ArrowUp = true;
+                // 只在未锁定时触发跳跃缓冲
+                if (!keyboardUpLocked) {
+                    jumpBufferTimer = BUFFER_DURATION;
+                    keyboardUpLocked = true;
+                }
+            } else if (key === 'ArrowDown') {
+                keys.ArrowDown = true;
+                // 只在未锁定时触发蹲下缓冲
+                if (!keyboardDownLocked) {
+                    duckBufferTimer = BUFFER_DURATION;
+                    keyboardDownLocked = true;
+                }
+            } else if (key === ' ') {
+                keys.Space = true;
+            } else if (key === 'r' || key === 'R') {
+                e.preventDefault();
+                restart();
+            }
+        });
+
+        window.addEventListener('keyup', (e) => {
+            const key = e.key;
+            if (key === 'ArrowUp') {
+                keys.ArrowUp = false;
+                keyboardUpLocked = false;  // 松开解锁
+            } else if (key === 'ArrowDown') {
+                keys.ArrowDown = false;
+                keyboardDownLocked = false;  // 松开解锁
+                if (!gameOver && playerState === 'duck') {
+                    playerState = 'run';
+                }
+                duckBufferTimer = 0;
+            } else if (key === ' ') {
+                keys.Space = false;
+            }
+            if (key === 'ArrowUp' || key === 'ArrowDown' || key === ' ') {
+                e.preventDefault();
+            }
+        });
+
+        window.addEventListener('keydown', (e) => {
+            if (e.key === ' ' || e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+                e.preventDefault();
+            }
+        }, false);
+
+        function randomRange(min, max) {
+            return Math.random() * (max - min) + min;
+        }
+
+        // 生成障碍物
+        function spawnObstacle() {
+            const type = Math.random() < 0.5 ? 'top' : 'bottom';
+            let h, y;
+
+            if (type === 'top') {
+                const bottomPos = randomRange(TOP_BOTTOM_MIN, TOP_BOTTOM_MAX);
+                y = 0;
+                h = bottomPos - y;
+                if (h < 20) h = 20;
+            } else {
+                h = OBSTACLE_HEIGHT;
+                y = H - h;
+            }
+
+            obstacles.push({
+                x: W,
+                y: y,
+                w: OBSTACLE_WIDTH,
+                h: h,
+                type: type,
+                passed: false
+            });
+        }
+
+        // 重置游戏
+        function resetGame() {
+            gameOver = false;
+            score = 0;
+            scoreSpan.innerText = '0';
+            obstacles = [];
+            playerState = 'run';
+            playerY = H - PLAYER_HEIGHT;
+            jumpVelocity = 0;
+            bgOffset = 0;
+            speed = baseSpeed;
+            spawnTimer = 45;
+            jumpBufferTimer = 0;
+            duckBufferTimer = 0;
+            keyboardUpLocked = false;
+            keyboardDownLocked = false;
+            gamepadUpLocked = false;
+            gamepadDownLocked = false;
+            sessionStartTime = performance.now();
+            isPlaying = true;
+        }
+
+        let spawnTimer = 45;
+
+        // 手柄轮询
+        function pollGamepad() {
+            const gamepads = navigator.getGamepads ? navigator.getGamepads() : [];
+            let gp = null;
+
+            for (let i = 0; i < gamepads.length; i++) {
+                if (gamepads[i] && gamepads[i].connected) {
+                    gp = gamepads[i];
+                    gamepadIndex = i;
+                    break;
+                }
+            }
+
+            if (gp && !gamepadConnected) {
+                gamepadConnected = true;
+                gamepadIcon.classList.add('connected');
+            } else if (!gp && gamepadConnected) {
+                gamepadConnected = false;
+                gamepadIcon.classList.remove('connected');
+                prevGamepadButtons.DPadUp = false;
+                prevGamepadButtons.DPadDown = false;
+                prevGamepadButtons.RB = false;
+                prevGamepadButtons.Start = false;
+                gamepadUpLocked = false;
+                gamepadDownLocked = false;
+                gamepadRB = false;
+                if (playerState === 'duck') {
+                    playerState = 'run';
+                }
+            }
+
+            if (!gp) {
+                gamepadRB = false;
+                return;
+            }
+
+            const buttons = gp.buttons;
+
+            // 十字键上 (跳跃) - buttons[12]
+            const dpadUpPressed = buttons[12] && (buttons[12].pressed || buttons[12].value > 0.5);
+            if (dpadUpPressed && !prevGamepadButtons.DPadUp) {
+                // 刚按下，且未锁定时触发跳跃缓冲
+                if (!gamepadUpLocked) {
+                    jumpBufferTimer = BUFFER_DURATION;
+                    gamepadUpLocked = true;
+                }
+            } else if (!dpadUpPressed && prevGamepadButtons.DPadUp) {
+                // 刚松开，解锁
+                gamepadUpLocked = false;
+            }
+            prevGamepadButtons.DPadUp = dpadUpPressed;
+
+            // 十字键下 (蹲下) - buttons[13]
+            const dpadDownPressed = buttons[13] && (buttons[13].pressed || buttons[13].value > 0.5);
+            if (dpadDownPressed && !prevGamepadButtons.DPadDown) {
+                // 刚按下，且未锁定时触发蹲下缓冲
+                if (!gamepadDownLocked) {
+                    duckBufferTimer = BUFFER_DURATION;
+                    gamepadDownLocked = true;
+                }
+            } else if (!dpadDownPressed && prevGamepadButtons.DPadDown) {
+                // 刚松开，解锁并起身
+                gamepadDownLocked = false;
+                if (!gameOver && playerState === 'duck') {
+                    playerState = 'run';
+                }
+                duckBufferTimer = 0;
+            }
+            prevGamepadButtons.DPadDown = dpadDownPressed;
+
+            // RB 键 (加速) - buttons[5]
+            const rbPressed = buttons[5] && (buttons[5].pressed || buttons[5].value > 0.5);
+            gamepadRB = rbPressed;
+            prevGamepadButtons.RB = rbPressed;
+
+            // Start 键 (重新开始) - buttons[9]
+            const startPressed = buttons[9] && (buttons[9].pressed || buttons[9].value > 0.5);
+            if (startPressed && !prevGamepadButtons.Start) {
+                if (gameOver) {
+                    restart();
+                }
+            }
+            prevGamepadButtons.Start = startPressed;
+        }
+
+        // ---------- 更新逻辑 ----------
+        function update() {
+            if (gameOver) return;
+
+            const isBoosting = keys.Space || gamepadRB;
+            speed = isBoosting ? BOOST_SPEED : baseSpeed;
+
+            // 输入缓冲
+            if (jumpBufferTimer > 0 && playerState === 'run') {
+                playerState = 'jump';
+                jumpVelocity = JUMP_FORCE;
+                jumpBufferTimer = 0;
+            }
+            if (jumpBufferTimer > 0) jumpBufferTimer--;
+
+            if (duckBufferTimer > 0 && playerState === 'run') {
+                playerState = 'duck';
+                duckBufferTimer = 0;
+            }
+            if (duckBufferTimer > 0) duckBufferTimer--;
+
+            // 玩家物理
+            if (playerState === 'jump') {
+                playerY += jumpVelocity;
+                jumpVelocity += GRAVITY;
+                const groundY = H - PLAYER_HEIGHT;
+                if (playerY >= groundY) {
+                    playerY = groundY;
+                    playerState = 'run';
+                    jumpVelocity = 0;
+                }
+            } else if (playerState === 'duck') {
+                // 蹲下不动
+            } else {
+                playerY = H - PLAYER_HEIGHT;
+            }
+
+            // 移动障碍物
+            for (let i = obstacles.length - 1; i >= 0; i--) {
+                const obs = obstacles[i];
+                obs.x -= speed;
+
+                if (!obs.passed && obs.x + obs.w < 0) {
+                    obs.passed = true;
+                    score += 10;
+                    scoreSpan.innerText = score;
+                    updateHighScore();
+                }
+                if (obs.x + obs.w < 0) {
+                    obstacles.splice(i, 1);
+                }
+            }
+
+            // 背景滚动
+            bgOffset = (bgOffset + speed * BG_SPEED_FACTOR) % 60;
+
+            // 障碍物生成
+            spawnTimer -= 1;
+            if (spawnTimer <= 0) {
+                if (obstacles.length < 4) {
+                    spawnObstacle();
+                }
+                const baseReset = randomRange(38, 68);
+                let resetFactor = baseSpeed / speed;
+                resetFactor = Math.max(0.45, Math.min(1.2, resetFactor));
+                const newReset = Math.floor(baseReset * resetFactor);
+                spawnTimer = Math.max(18, newReset);
+            }
+
+            // 碰撞检测
+            const rawPlayer = getPlayerRect();
+            const playerRect = {
+                x: rawPlayer.x + 5,
+                y: rawPlayer.y + 5,
+                w: rawPlayer.w - 10,
+                h: rawPlayer.h - 10
+            };
+            if (playerState === 'jump') {
+                playerRect.y = rawPlayer.y + 9;
+                playerRect.h = rawPlayer.h - 18;
+            }
+
+            for (let obs of obstacles) {
+                let obsRect;
+                if (obs.type === 'top') {
+                    obsRect = {
+                        x: obs.x + 3,
+                        y: obs.y + 3,
+                        w: obs.w - 6,
+                        h: obs.h - 6
+                    };
+                } else {
+                    obsRect = {
+                        x: obs.x + 6,
+                        y: obs.y + 5,
+                        w: obs.w - 12,
+                        h: obs.h - 10
+                    };
+                }
+
+                if (playerRect.x < obsRect.x + obsRect.w &&
+                    playerRect.x + playerRect.w > obsRect.x &&
+                    playerRect.y < obsRect.y + obsRect.h &&
+                    playerRect.y + playerRect.h > obsRect.y) {
+                    gameOver = true;
+                    updateHighScore();
+                    saveTotalTime();
+                    isPlaying = false;
+                    break;
+                }
+            }
+        }
+
+        // ---------- 绘制 ----------
+        function draw() {
+            ctx.clearRect(0, 0, W, H);
+
+            const skyGrad = ctx.createLinearGradient(0, 0, 0, H);
+            skyGrad.addColorStop(0, '#b6e2f0');
+            skyGrad.addColorStop(0.8, '#d4eef9');
+            ctx.fillStyle = skyGrad;
+            ctx.fillRect(0, 0, W, H);
+
+            ctx.fillStyle = '#9ac7d9';
+            ctx.globalAlpha = 0.5;
+            for (let i = 0; i < 12; i++) {
+                let x = (i * 80 - bgOffset * 1.2) % (W + 100) - 50;
+                ctx.beginPath();
+                ctx.arc(x, 60, 40, 0, Math.PI * 2);
+                ctx.fill();
+            }
+            ctx.globalAlpha = 1.0;
+
+            ctx.fillStyle = '#7a9e7e';
+            ctx.fillRect(0, H - 40, W, 40);
+            ctx.fillStyle = '#5f7e5f';
+            for (let i = 0; i < 20; i++) {
+                let x = (i * 45 - bgOffset * 2) % (W + 80) - 40;
+                ctx.fillRect(x, H - 28, 20, 6);
+            }
+            ctx.fillStyle = '#4f6b4f';
+            ctx.fillRect(0, H - 12, W, 6);
+
+            for (let obs of obstacles) {
+                if (obs.type === 'top') {
+                    ctx.fillStyle = '#b13e3e';
+                    ctx.shadowColor = '#6b1f1f';
+                } else {
+                    ctx.fillStyle = '#2e6b8f';
+                    ctx.shadowColor = '#153b52';
+                }
+                ctx.shadowBlur = 8;
+                ctx.shadowOffsetY = 3;
+                const r = 6;
+                ctx.beginPath();
+                ctx.moveTo(obs.x + r, obs.y);
+                ctx.lineTo(obs.x + obs.w - r, obs.y);
+                ctx.quadraticCurveTo(obs.x + obs.w, obs.y, obs.x + obs.w, obs.y + r);
+                ctx.lineTo(obs.x + obs.w, obs.y + obs.h - r);
+                ctx.quadraticCurveTo(obs.x + obs.w, obs.y + obs.h, obs.x + obs.w - r, obs.y + obs.h);
+                ctx.lineTo(obs.x + r, obs.y + obs.h);
+                ctx.quadraticCurveTo(obs.x, obs.y + obs.h, obs.x, obs.y + obs.h - r);
+                ctx.lineTo(obs.x, obs.y + r);
+                ctx.quadraticCurveTo(obs.x, obs.y, obs.x + r, obs.y);
+                ctx.closePath();
+                ctx.fill();
+                ctx.shadowBlur = 0;
+                ctx.shadowOffsetY = 0;
+                ctx.strokeStyle = '#fff3e0';
+                ctx.lineWidth = 2;
+                ctx.stroke();
+            }
+
+            const playerRect = getPlayerRect();
+            if (playerState === 'jump') {
+                ctx.fillStyle = '#f5c542';
+                ctx.shadowColor = '#b88a1a';
+            } else if (playerState === 'duck') {
+                ctx.fillStyle = '#44b78b';
+                ctx.shadowColor = '#1d6b4a';
+            } else {
+                ctx.fillStyle = '#f09b4a';
+                ctx.shadowColor = '#9e5c1a';
+            }
+            ctx.shadowBlur = 12;
+            ctx.shadowOffsetY = 4;
+            const px = playerRect.x, py = playerRect.y, pw = playerRect.w, ph = playerRect.h;
+            const pr = 10;
+            ctx.beginPath();
+            ctx.moveTo(px + pr, py);
+            ctx.lineTo(px + pw - pr, py);
+            ctx.quadraticCurveTo(px + pw, py, px + pw, py + pr);
+            ctx.lineTo(px + pw, py + ph - pr);
+            ctx.quadraticCurveTo(px + pw, py + ph, px + pw - pr, py + ph);
+            ctx.lineTo(px + pr, py + ph);
+            ctx.quadraticCurveTo(px, py + ph, px, py + ph - pr);
+            ctx.lineTo(px, py + pr);
+            ctx.quadraticCurveTo(px, py, px + pr, py);
+            ctx.closePath();
+            ctx.fill();
+
+            ctx.shadowBlur = 0;
+            ctx.shadowOffsetY = 0;
+            ctx.fillStyle = '#ffffff';
+            ctx.beginPath();
+            ctx.arc(px + pw - 14, py + 16, 5, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.fillStyle = '#1e1e1e';
+            ctx.beginPath();
+            ctx.arc(px + pw - 16, py + 14, 2.5, 0, Math.PI * 2);
+            ctx.fill();
+
+            if (playerState === 'jump') {
+                ctx.fillStyle = '#ffffff80';
+                ctx.beginPath();
+                ctx.arc(px + pw/2, py + ph - 8, 8, 0, Math.PI * 2);
+                ctx.fill();
+            }
+
+            if (gameOver) {
+                ctx.fillStyle = '#000000aa';
+                ctx.fillRect(0, 0, W, H);
+                ctx.font = 'bold 48px "Courier New", monospace';
+                ctx.fillStyle = '#f3d9b1';
+                ctx.shadowColor = '#2e1e0e';
+                ctx.shadowBlur = 14;
+                ctx.shadowOffsetY = 6;
+                ctx.textAlign = 'center';
+                ctx.fillText('GAME OVER', W/2, H/2 - 20);
+                ctx.font = '28px "Courier New", monospace';
+                ctx.fillText('点击 / R / Start 重新开始', W/2, H/2 + 60);
+                ctx.shadowBlur = 0;
+                ctx.shadowOffsetY = 0;
+            }
+
+            ctx.shadowBlur = 0;
+            ctx.shadowOffsetY = 0;
+            ctx.textAlign = 'left';
+        }
+
+        // 游戏主循环
+        let lastTime = 0;
+        function gameLoop(timestamp) {
+            if (!lastTime) lastTime = timestamp;
+            const deltaTime = (timestamp - lastTime) / 1000;
+            lastTime = timestamp;
+
+            pollGamepad();
+
+            if (!gameOver) {
+                if (isPlaying && sessionStartTime > 0) {
+                    totalPlayTime += deltaTime;
+                    updateTimeDisplay();
+                }
+                update();
+            } else {
+                if (isPlaying) {
+                    saveTotalTime();
+                    isPlaying = false;
+                }
+            }
+            draw();
+            requestAnimationFrame(gameLoop);
+        }
+
+        function restart() {
+            if (isPlaying) {
+                saveTotalTime();
+            }
+            resetGame();
+        }
+
+        canvas.addEventListener('click', () => {
+            if (gameOver) {
+                restart();
+            }
+        });
+
+        window.addEventListener('blur', () => {
+            keys.ArrowUp = false;
+            keys.ArrowDown = false;
+            keys.Space = false;
+            keyboardUpLocked = false;
+            keyboardDownLocked = false;
+            if (playerState === 'duck') {
+                playerState = 'run';
+            }
+        });
+
+        window.addEventListener('gamepadconnected', (e) => {
+            gamepadConnected = true;
+            gamepadIndex = e.gamepad.index;
+            gamepadIcon.classList.add('connected');
+        });
+
+        window.addEventListener('gamepaddisconnected', (e) => {
+            gamepadConnected = false;
+            gamepadIndex = -1;
+            gamepadIcon.classList.remove('connected');
+            prevGamepadButtons.DPadUp = false;
+            prevGamepadButtons.DPadDown = false;
+            prevGamepadButtons.RB = false;
+            prevGamepadButtons.Start = false;
+            gamepadUpLocked = false;
+            gamepadDownLocked = false;
+            gamepadRB = false;
+        });
+
+        loadHighScore();
+        loadTotalTime();
+        resetGame();
+        requestAnimationFrame(gameLoop);
+    })();
+</script>
+</body>
+</html>
