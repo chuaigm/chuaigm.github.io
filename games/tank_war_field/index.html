@@ -142,6 +142,16 @@
 
         const W = 900, H = 400;
 
+        // ---------- 帧率无关基准 ----------
+        const FPS_BASE = 60;
+
+        // 抛物线重力加速度：原来的帧重力是 0.18 像素/帧²
+        // 换算：0.18 像素/帧² × 60² 帧²/秒² = 648 像素/秒²
+        const BULLET_GRAVITY = 0.18 * FPS_BASE * FPS_BASE;   // = 648 像素/秒²
+
+        // 道具重力：0.3 像素/帧² → 0.3 × 3600 = 1080 像素/秒²
+        const POWERUP_GRAVITY = 0.3 * FPS_BASE * FPS_BASE;
+
         // ---------- 音效 ----------
         let audioCtx = null;
         function initAudio() {
@@ -308,13 +318,17 @@
             osc2.stop(now + 0.25);
         }
 
-        // ---------- 地形（随机化） ----------
+        // ---------- 地形 ----------
         let terrainParams = {
             baseOffset: 0,
             wave1: { amp: 0, freq: 0, phase: 0 },
             wave2: { amp: 0, freq: 0, phase: 0 },
             wave3: { amp: 0, freq: 0, phase: 0 }
         };
+
+        function randomRange(min, max) {
+            return Math.random() * (max - min) + min;
+        }
 
         function randomizeTerrain() {
             terrainParams = {
@@ -378,7 +392,7 @@
             y: 0,
             w: 56,
             h: 26,
-            speed: 2.2,
+            speed: 2.2 * FPS_BASE,
             dir: 1,
             reloadTimer: 0,
             activeBullets: 0,
@@ -386,7 +400,7 @@
             splitShot: 1
         };
 
-        const RELOAD_DURATION = 12;
+        const RELOAD_DURATION = 12 / FPS_BASE;
 
         let enemies = [];
         let bullets = [];
@@ -394,8 +408,8 @@
         let powerups = [];
 
         let enemySpawnTimer = 0;
-        const ENEMY_SPAWN_INTERVAL_BASE = 150;
-        const ENEMY_SPAWN_INTERVAL_FAST = 40;
+        const ENEMY_SPAWN_INTERVAL_BASE = 150 / FPS_BASE;
+        const ENEMY_SPAWN_INTERVAL_FAST = 40 / FPS_BASE;
         const ENEMY_COUNT_THRESHOLD = 5;
 
         let lastPowerupType = null;
@@ -415,10 +429,6 @@
             A: false,
             Start: false
         };
-
-        function randomRange(min, max) {
-            return Math.random() * (max - min) + min;
-        }
 
         function getTankBottom(tank) {
             return {
@@ -518,20 +528,20 @@
                 const r = Math.random();
                 if (r < 0.5) {
                     enemySplitShot = 1;
-                    cooldownValue = 55;
-                    maxCooldownValue = 70;
+                    cooldownValue = 55 / FPS_BASE;
+                    maxCooldownValue = 70 / FPS_BASE;
                 } else if (r < 0.8) {
                     enemySplitShot = 2;
-                    cooldownValue = 85;
-                    maxCooldownValue = 105;
+                    cooldownValue = 85 / FPS_BASE;
+                    maxCooldownValue = 105 / FPS_BASE;
                 } else {
                     enemySplitShot = 3;
-                    cooldownValue = 110;
-                    maxCooldownValue = 135;
+                    cooldownValue = 110 / FPS_BASE;
+                    maxCooldownValue = 135 / FPS_BASE;
                 }
             } else {
-                cooldownValue = randomRange(100, 170);
-                maxCooldownValue = 160;
+                cooldownValue = randomRange(100, 170) / FPS_BASE;
+                maxCooldownValue = 160 / FPS_BASE;
 
                 if (Math.random() < 0.05) {
                     enemySplitShot = 2;
@@ -540,8 +550,8 @@
 
                 if (!hasSplitShot && Math.random() < 0.05) {
                     hasFastFire = true;
-                    cooldownValue = randomRange(55, 85);
-                    maxCooldownValue = 85;
+                    cooldownValue = randomRange(55, 85) / FPS_BASE;
+                    maxCooldownValue = 85 / FPS_BASE;
                 }
             }
 
@@ -550,7 +560,7 @@
                 y: 0,
                 w: w,
                 h: h,
-                speed: isBoss ? 0.9 : 1.2,
+                speed: (isBoss ? 0.9 : 1.2) * FPS_BASE,
                 dir: dir,
                 cooldown: cooldownValue,
                 maxCooldown: maxCooldownValue,
@@ -570,7 +580,7 @@
             const barrelLength = player.w * 0.75;
             const baseAngle = -0.6;
             const angle = baseAngle + angleOffset;
-            const speed = 6.0;
+            const speed = 6.0 * FPS_BASE;
             const vx = Math.cos(angle) * speed * player.dir;
             const vy = Math.sin(angle) * speed;
 
@@ -586,7 +596,7 @@
                 vy: vy,
                 isEnemy: false,
                 radius: 7,
-                life: 300,
+                life: 300 / FPS_BASE,
                 isPlayerBullet: true,
                 id: Math.random()
             });
@@ -610,7 +620,7 @@
                 const barrelLength = enemy.w * 0.75;
                 const baseAngle = -0.6;
                 const angle = baseAngle + spread;
-                const speed = 5.0;
+                const speed = 5.0 * FPS_BASE;
                 const vx = Math.cos(angle) * speed * fireDir;
                 const vy = Math.sin(angle) * speed;
 
@@ -626,7 +636,7 @@
                     vy: vy,
                     isEnemy: true,
                     radius: 7,
-                    life: 300,
+                    life: 300 / FPS_BASE,
                     isPlayerBullet: false,
                     id: Math.random()
                 });
@@ -781,15 +791,15 @@
                 y: y,
                 radius: radius,
                 maxRadius: radius * 1.8,
-                life: 15,
-                maxLife: 15
+                life: 15 / FPS_BASE,
+                maxLife: 15 / FPS_BASE
             });
         }
 
-        function updateExplosions() {
+        function updateExplosions(dt) {
             for (let i = explosions.length - 1; i >= 0; i--) {
                 const e = explosions[i];
-                e.life--;
+                e.life -= dt;
                 e.radius = e.maxRadius * (1 - e.life / e.maxLife);
                 if (e.life <= 0) {
                     explosions.splice(i, 1);
@@ -811,17 +821,18 @@
                 w: 36,
                 h: 36,
                 type: type,
-                vy: -2,
-                life: 900
+                vy: -2 * FPS_BASE,
+                life: 900 / FPS_BASE
             });
         }
 
-        function updatePowerups() {
+        function updatePowerups(dt) {
             for (let i = powerups.length - 1; i >= 0; i--) {
                 const p = powerups[i];
-                p.life--;
-                p.vy += 0.3;
-                p.y += p.vy;
+                p.life -= dt;
+                // 道具重力：使用 POWERUP_GRAVITY
+                p.vy += POWERUP_GRAVITY * dt;
+                p.y += p.vy * dt;
 
                 const groundY = terrainY(p.x + p.w / 2);
                 if (p.y + p.h > groundY) {
@@ -870,28 +881,28 @@
                 return ENEMY_SPAWN_INTERVAL_FAST + (ENEMY_SPAWN_INTERVAL_BASE - ENEMY_SPAWN_INTERVAL_FAST) * ratio;
             } else if (count > ENEMY_COUNT_THRESHOLD) {
                 const extra = Math.min(count - ENEMY_COUNT_THRESHOLD, 5);
-                return ENEMY_SPAWN_INTERVAL_BASE + extra * 18;
+                return ENEMY_SPAWN_INTERVAL_BASE + extra * (18 / FPS_BASE);
             } else {
                 return ENEMY_SPAWN_INTERVAL_BASE;
             }
         }
 
-        function update() {
+        function update(dt) {
             if (gameOver) return;
 
             if (keys.ArrowLeft || (gamepadConnected && gamepadLeft)) {
-                player.x -= player.speed;
+                player.x -= player.speed * dt;
                 player.dir = -1;
             }
             if (keys.ArrowRight || (gamepadConnected && gamepadRight)) {
-                player.x += player.speed;
+                player.x += player.speed * dt;
                 player.dir = 1;
             }
             if (player.x < 0) player.x = 0;
             if (player.x + player.w > W) player.x = W - player.w;
             snapToTerrain(player);
 
-            if (player.reloadTimer > 0) player.reloadTimer--;
+            if (player.reloadTimer > 0) player.reloadTimer -= dt;
 
             const canFire = player.activeBullets === 0 && player.reloadTimer <= 0;
             const firePressed = keys.Space || (gamepadConnected && gamepadA);
@@ -903,12 +914,15 @@
                 }
             }
 
+            // ---------- 炮弹物理更新（抛物线） ----------
             for (let i = bullets.length - 1; i >= 0; i--) {
                 const b = bullets[i];
-                b.x += b.vx;
-                b.y += b.vy;
-                b.vy += 0.18;
-                b.life--;
+                // 水平匀速
+                b.x += b.vx * dt;
+                // 垂直方向：先应用速度，再施加重力加速度
+                b.y += b.vy * dt;
+                b.vy += BULLET_GRAVITY * dt;   // 重力（像素/秒²）
+                b.life -= dt;
 
                 if (b.x < -50 || b.x > W + 50 || b.y > H + 100 || b.life <= 0) {
                     bullets.splice(i, 1);
@@ -918,14 +932,14 @@
 
             for (let i = enemies.length - 1; i >= 0; i--) {
                 const e = enemies[i];
-                e.x += e.speed * e.dir;
+                e.x += e.speed * e.dir * dt;
                 snapToTerrain(e);
 
-                if (e.cooldown > 0) e.cooldown--;
+                if (e.cooldown > 0) e.cooldown -= dt;
 
                 if (e.cooldown <= 0) {
                     enemyFire(e);
-                    e.cooldown = e.maxCooldown + randomRange(-30, 30);
+                    e.cooldown = e.maxCooldown + randomRange(-30, 30) / FPS_BASE;
                 }
 
                 if (e.x < -120 || e.x > W + 120) {
@@ -933,7 +947,7 @@
                 }
             }
 
-            enemySpawnTimer--;
+            enemySpawnTimer -= dt;
             if (enemySpawnTimer <= 0) {
                 if (!enemies.some(e => e.isBoss)) {
                     spawnEnemy(false);
@@ -942,8 +956,8 @@
             }
 
             checkBulletCollisions();
-            updateExplosions();
-            updatePowerups();
+            updateExplosions(dt);
+            updatePowerups(dt);
         }
 
         // ---------- 绘制 ----------
@@ -988,12 +1002,10 @@
                     darkColor = '#5a0f0f';
                     lightColor = '#c0392b';
                 } else if (e.hasSplitShot) {
-                    // 双发：紫色
                     bodyColor = '#8e44ad';
                     darkColor = '#5b2c6f';
                     lightColor = '#bb8fce';
                 } else if (e.hasFastFire) {
-                    // 快速射击：偏绿色
                     bodyColor = '#27ae60';
                     darkColor = '#145a32';
                     lightColor = '#58d68d';
@@ -1506,10 +1518,17 @@
             gamepadA = false;
         }
 
-        function gameLoop() {
+        let lastTimestamp = 0;
+        function gameLoop(timestamp) {
+            if (!lastTimestamp) lastTimestamp = timestamp;
+            let dt = (timestamp - lastTimestamp) / 1000;
+            lastTimestamp = timestamp;
+            if (dt > 0.1) dt = 0.1;
+            if (dt < 0.001) dt = 0.001;
+
             pollGamepad();
             if (!gameOver) {
-                update();
+                update(dt);
             }
             draw();
             requestAnimationFrame(gameLoop);
@@ -1536,7 +1555,7 @@
 
         restartGame();
         spawnEnemy(false);
-        gameLoop();
+        requestAnimationFrame(gameLoop);
     })();
 </script>
 </body>

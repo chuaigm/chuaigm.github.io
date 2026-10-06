@@ -80,7 +80,6 @@
         .gamepad-icon.connected {
             display: inline-block;
         }
-        /* 统一的操作提示 */
         .key-hint {
             display: flex;
             gap: 8px;
@@ -119,7 +118,6 @@
         <span class="high-score-box">📀 最高分: <span id="highScoreDisplay">0</span></span>
         <span class="time-box">⏱️ 累计: <span id="timeDisplay">0</span> 分</span>
         <span class="gamepad-icon" id="gamepadIcon">🎮</span>
-        <!-- 统一的操作提示 -->
         <div class="key-hint" id="hintBar">
             <span><kbd id="kUp">↑</kbd><span id="tUp">跳</span></span>
             <span><kbd id="kDown">↓</kbd><span id="tDown">蹲</span></span>
@@ -137,7 +135,6 @@
         const timeSpan = document.getElementById('timeDisplay');
         const gamepadIcon = document.getElementById('gamepadIcon');
 
-        // 提示元素
         const kUp = document.getElementById('kUp');
         const kDown = document.getElementById('kDown');
         const kBoost = document.getElementById('kBoost');
@@ -146,15 +143,20 @@
         // ---------- 固定尺寸参数 ----------
         const W = 800, H = 320;
 
+        // ---------- 帧率无关基准 ----------
+        const FPS_BASE = 60;
+
         // ---------- 玩家参数 ----------
         const PLAYER_WIDTH = 36;
         const PLAYER_HEIGHT = 62;
         const DUCK_HEIGHT = 30;
         const PLAYER_X = 100;
 
-        // 物理参数
-        const GRAVITY = 1.0;
-        const JUMP_FORCE = -15;
+        // 物理参数（转换为秒单位）
+        // 原来 GRAVITY = 1.0 像素/帧² → 1.0 * 3600 = 3600 像素/秒²
+        // 原来 JUMP_FORCE = -15 像素/帧 → -15 * 60 = -900 像素/秒
+        const GRAVITY = 1.0 * FPS_BASE * FPS_BASE;   // 3600 像素/秒²
+        const JUMP_FORCE = -15 * FPS_BASE;            // -900 像素/秒
 
         // 三种垂直状态
         let playerState = 'run';
@@ -184,9 +186,13 @@
         let score = 0;
         let highScore = 0;
         let gameOver = false;
-        let baseSpeed = 4.2;
-        let speed = baseSpeed;
-        const BOOST_SPEED = 8.0;
+
+        // 速度转换为像素/秒
+        // baseSpeed = 4.2 像素/帧 → 4.2 * 60 = 252 像素/秒
+        // BOOST_SPEED = 8.0 像素/帧 → 8.0 * 60 = 480 像素/秒
+        const BASE_SPEED = 4.2 * FPS_BASE;
+        const BOOST_SPEED = 8.0 * FPS_BASE;
+        let speed = BASE_SPEED;
 
         let bgOffset = 0;
         const BG_SPEED_FACTOR = 0.9;
@@ -202,10 +208,11 @@
             Space: false
         };
 
-        // ---------- 输入缓冲 ----------
+        // ---------- 输入缓冲（转换为秒） ----------
+        // 原来 BUFFER_DURATION = 12 帧 → 12 / 60 = 0.2 秒
         let jumpBufferTimer = 0;
         let duckBufferTimer = 0;
-        const BUFFER_DURATION = 12;
+        const BUFFER_DURATION = 12 / FPS_BASE;   // 0.2 秒
 
         // ---------- 按键锁定 ----------
         let keyboardUpLocked = false;
@@ -224,7 +231,6 @@
         let gamepadUpLocked = false;
         let gamepadDownLocked = false;
 
-        // 最高分
         function loadHighScore() {
             try {
                 const saved = localStorage.getItem('parkourHighScore');
@@ -251,7 +257,6 @@
             }
         }
 
-        // 累计时间
         function loadTotalTime() {
             try {
                 const saved = localStorage.getItem('parkourTotalTime');
@@ -275,17 +280,14 @@
             timeSpan.innerText = minutes.toFixed(1);
         }
 
-        // ---------- 提示切换：共用同一套图标，只改按键名 ----------
         function updateHints() {
             if (gamepadConnected) {
-                // 手柄模式：使用相同的 kbd 样式，但显示手柄按键
                 kUp.innerText = '↑';
                 kDown.innerText = '↓';
                 kBoost.innerText = 'RB';
                 kBoost.classList.add('rb');
                 kRestart.innerText = 'ST';
             } else {
-                // 键盘模式
                 kUp.innerText = '↑';
                 kDown.innerText = '↓';
                 kBoost.innerText = '空格';
@@ -294,7 +296,6 @@
             }
         }
 
-        // ---------- 核心：尝试立即执行跳跃/蹲下 ----------
         function tryJump() {
             if (gameOver) return;
             if (playerState === 'run') {
@@ -324,7 +325,6 @@
             duckBufferTimer = 0;
         }
 
-        // ---------- 键盘事件 ----------
         window.addEventListener('keydown', (e) => {
             const key = e.key;
             if (key === 'ArrowUp' || key === 'ArrowDown' || key === ' ') {
@@ -378,7 +378,6 @@
             return Math.random() * (max - min) + min;
         }
 
-        // 生成障碍物
         function spawnObstacle() {
             const type = Math.random() < 0.5 ? 'top' : 'bottom';
             let h, y;
@@ -403,7 +402,6 @@
             });
         }
 
-        // 重置游戏
         function resetGame() {
             gameOver = false;
             score = 0;
@@ -413,8 +411,9 @@
             playerY = H - PLAYER_HEIGHT;
             jumpVelocity = 0;
             bgOffset = 0;
-            speed = baseSpeed;
-            spawnTimer = 45;
+            speed = BASE_SPEED;
+            // spawnTimer 转换为秒：45 帧 → 45/60 = 0.75 秒
+            spawnTimer = 45 / FPS_BASE;
             jumpBufferTimer = 0;
             duckBufferTimer = 0;
             keyboardUpLocked = false;
@@ -425,9 +424,8 @@
             isPlaying = true;
         }
 
-        let spawnTimer = 45;
+        let spawnTimer = 45 / FPS_BASE;   // 秒
 
-        // 手柄轮询
         function pollGamepad() {
             const gamepads = navigator.getGamepads ? navigator.getGamepads() : [];
             let gp = null;
@@ -467,7 +465,6 @@
 
             const buttons = gp.buttons;
 
-            // 十字键上 (跳跃)
             const dpadUpPressed = buttons[12] && (buttons[12].pressed || buttons[12].value > 0.5);
             if (dpadUpPressed && !prevGamepadButtons.DPadUp) {
                 if (!gamepadUpLocked) {
@@ -479,7 +476,6 @@
             }
             prevGamepadButtons.DPadUp = dpadUpPressed;
 
-            // 十字键下 (蹲下)
             const dpadDownPressed = buttons[13] && (buttons[13].pressed || buttons[13].value > 0.5);
             if (dpadDownPressed && !prevGamepadButtons.DPadDown) {
                 if (!gamepadDownLocked) {
@@ -492,12 +488,10 @@
             }
             prevGamepadButtons.DPadDown = dpadDownPressed;
 
-            // RB 键 (加速)
             const rbPressed = buttons[5] && (buttons[5].pressed || buttons[5].value > 0.5);
             gamepadRB = rbPressed;
             prevGamepadButtons.RB = rbPressed;
 
-            // Start 键 (重新开始)
             const startPressed = buttons[9] && (buttons[9].pressed || buttons[9].value > 0.5);
             if (startPressed && !prevGamepadButtons.Start) {
                 if (gameOver) {
@@ -507,31 +501,31 @@
             prevGamepadButtons.Start = startPressed;
         }
 
-        // ---------- 更新逻辑 ----------
-        function update() {
+        // ---------- 更新逻辑（基于时间差） ----------
+        function update(dt) {
             if (gameOver) return;
 
             const isBoosting = keys.Space || gamepadRB;
-            speed = isBoosting ? BOOST_SPEED : baseSpeed;
+            speed = isBoosting ? BOOST_SPEED : BASE_SPEED;
 
-            // 缓冲处理
+            // 缓冲处理（使用秒）
             if (jumpBufferTimer > 0 && playerState === 'run') {
                 playerState = 'jump';
                 jumpVelocity = JUMP_FORCE;
                 jumpBufferTimer = 0;
             }
-            if (jumpBufferTimer > 0) jumpBufferTimer--;
+            if (jumpBufferTimer > 0) jumpBufferTimer -= dt;
 
             if (duckBufferTimer > 0 && playerState === 'run') {
                 playerState = 'duck';
                 duckBufferTimer = 0;
             }
-            if (duckBufferTimer > 0) duckBufferTimer--;
+            if (duckBufferTimer > 0) duckBufferTimer -= dt;
 
-            // 玩家物理
+            // 玩家物理（使用秒）
             if (playerState === 'jump') {
-                playerY += jumpVelocity;
-                jumpVelocity += GRAVITY;
+                playerY += jumpVelocity * dt;
+                jumpVelocity += GRAVITY * dt;
                 const groundY = H - PLAYER_HEIGHT;
                 if (playerY >= groundY) {
                     playerY = groundY;
@@ -544,10 +538,10 @@
                 playerY = H - PLAYER_HEIGHT;
             }
 
-            // 移动障碍物
+            // 移动障碍物（像素/秒 * 秒）
             for (let i = obstacles.length - 1; i >= 0; i--) {
                 const obs = obstacles[i];
-                obs.x -= speed;
+                obs.x -= speed * dt;
 
                 if (!obs.passed && obs.x + obs.w < 0) {
                     obs.passed = true;
@@ -561,19 +555,20 @@
             }
 
             // 背景滚动
-            bgOffset = (bgOffset + speed * BG_SPEED_FACTOR) % 60;
+            bgOffset = (bgOffset + speed * BG_SPEED_FACTOR * dt) % 60;
 
-            // 障碍物生成
-            spawnTimer -= 1;
+            // 障碍物生成（秒）
+            spawnTimer -= dt;
             if (spawnTimer <= 0) {
                 if (obstacles.length < 4) {
                     spawnObstacle();
                 }
-                const baseReset = randomRange(38, 68);
-                let resetFactor = baseSpeed / speed;
+                // 间隔转换为秒：随机 38~68 帧 → 除以 60
+                const baseReset = randomRange(38, 68) / FPS_BASE;
+                let resetFactor = BASE_SPEED / speed;
                 resetFactor = Math.max(0.45, Math.min(1.2, resetFactor));
-                const newReset = Math.floor(baseReset * resetFactor);
-                spawnTimer = Math.max(18, newReset);
+                const newReset = baseReset * resetFactor;
+                spawnTimer = Math.max(18 / FPS_BASE, newReset);
             }
 
             // 碰撞检测
@@ -747,21 +742,23 @@
             ctx.textAlign = 'left';
         }
 
-        // 游戏主循环
+        // ---------- 游戏主循环（基于时间差） ----------
         let lastTime = 0;
         function gameLoop(timestamp) {
             if (!lastTime) lastTime = timestamp;
-            const deltaTime = (timestamp - lastTime) / 1000;
+            let dt = (timestamp - lastTime) / 1000;
             lastTime = timestamp;
+            if (dt > 0.1) dt = 0.1;
+            if (dt < 0.001) dt = 0.001;
 
             pollGamepad();
 
             if (!gameOver) {
                 if (isPlaying && sessionStartTime > 0) {
-                    totalPlayTime += deltaTime;
+                    totalPlayTime += dt;
                     updateTimeDisplay();
                 }
-                update();
+                update(dt);
             } else {
                 if (isPlaying) {
                     saveTotalTime();
