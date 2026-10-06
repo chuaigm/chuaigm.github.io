@@ -80,6 +80,7 @@
         .gamepad-icon.connected {
             display: inline-block;
         }
+        /* 统一的操作提示 */
         .key-hint {
             display: flex;
             gap: 8px;
@@ -89,6 +90,7 @@
             padding: 6px 12px;
             border-radius: 40px;
             white-space: nowrap;
+            align-items: center;
         }
         .key-hint kbd {
             background: #f0f3f8;
@@ -98,6 +100,14 @@
             font-weight: bold;
             margin: 0 1px;
             box-shadow: 0 2px 0 #5a6f88;
+            font-size: 0.78rem;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 18px;
+        }
+        .key-hint kbd.rb {
+            background: #ffd966;
         }
     </style>
 </head>
@@ -109,11 +119,12 @@
         <span class="high-score-box">📀 最高分: <span id="highScoreDisplay">0</span></span>
         <span class="time-box">⏱️ 累计: <span id="timeDisplay">0</span> 分</span>
         <span class="gamepad-icon" id="gamepadIcon">🎮</span>
-        <div class="key-hint">
-            <span><kbd>↑</kbd>跳</span>
-            <span><kbd>↓</kbd>蹲</span>
-            <span><kbd>空格</kbd>加速</span>
-            <span><kbd>R</kbd>重开</span>
+        <!-- 统一的操作提示 -->
+        <div class="key-hint" id="hintBar">
+            <span><kbd id="kUp">↑</kbd><span id="tUp">跳</span></span>
+            <span><kbd id="kDown">↓</kbd><span id="tDown">蹲</span></span>
+            <span><kbd id="kBoost">空格</kbd><span>加速</span></span>
+            <span><kbd id="kRestart">R</kbd><span>重开</span></span>
         </div>
     </div>
 </div>
@@ -125,6 +136,12 @@
         const highScoreSpan = document.getElementById('highScoreDisplay');
         const timeSpan = document.getElementById('timeDisplay');
         const gamepadIcon = document.getElementById('gamepadIcon');
+
+        // 提示元素
+        const kUp = document.getElementById('kUp');
+        const kDown = document.getElementById('kDown');
+        const kBoost = document.getElementById('kBoost');
+        const kRestart = document.getElementById('kRestart');
 
         // ---------- 固定尺寸参数 ----------
         const W = 800, H = 320;
@@ -188,11 +205,11 @@
         // ---------- 输入缓冲 ----------
         let jumpBufferTimer = 0;
         let duckBufferTimer = 0;
-        const BUFFER_DURATION = 8;
+        const BUFFER_DURATION = 12;
 
-        // ---------- 键盘按键锁定 (防止按住连续触发) ----------
-        let keyboardUpLocked = false;    // 键盘 ↑ 是否已锁定（按住时不再触发跳跃）
-        let keyboardDownLocked = false;  // 键盘 ↓ 是否已锁定
+        // ---------- 按键锁定 ----------
+        let keyboardUpLocked = false;
+        let keyboardDownLocked = false;
 
         // ---------- 手柄状态 ----------
         let gamepadConnected = false;
@@ -204,7 +221,6 @@
             RB: false,
             Start: false
         };
-        // 手柄方向键锁定状态
         let gamepadUpLocked = false;
         let gamepadDownLocked = false;
 
@@ -259,6 +275,55 @@
             timeSpan.innerText = minutes.toFixed(1);
         }
 
+        // ---------- 提示切换：共用同一套图标，只改按键名 ----------
+        function updateHints() {
+            if (gamepadConnected) {
+                // 手柄模式：使用相同的 kbd 样式，但显示手柄按键
+                kUp.innerText = '↑';
+                kDown.innerText = '↓';
+                kBoost.innerText = 'RB';
+                kBoost.classList.add('rb');
+                kRestart.innerText = 'ST';
+            } else {
+                // 键盘模式
+                kUp.innerText = '↑';
+                kDown.innerText = '↓';
+                kBoost.innerText = '空格';
+                kBoost.classList.remove('rb');
+                kRestart.innerText = 'R';
+            }
+        }
+
+        // ---------- 核心：尝试立即执行跳跃/蹲下 ----------
+        function tryJump() {
+            if (gameOver) return;
+            if (playerState === 'run') {
+                playerState = 'jump';
+                jumpVelocity = JUMP_FORCE;
+                jumpBufferTimer = 0;
+            } else {
+                jumpBufferTimer = BUFFER_DURATION;
+            }
+        }
+
+        function tryDuck() {
+            if (gameOver) return;
+            if (playerState === 'run') {
+                playerState = 'duck';
+                duckBufferTimer = 0;
+            } else {
+                duckBufferTimer = BUFFER_DURATION;
+            }
+        }
+
+        function releaseDuck() {
+            if (gameOver) return;
+            if (playerState === 'duck') {
+                playerState = 'run';
+            }
+            duckBufferTimer = 0;
+        }
+
         // ---------- 键盘事件 ----------
         window.addEventListener('keydown', (e) => {
             const key = e.key;
@@ -268,17 +333,15 @@
 
             if (key === 'ArrowUp') {
                 keys.ArrowUp = true;
-                // 只在未锁定时触发跳跃缓冲
                 if (!keyboardUpLocked) {
-                    jumpBufferTimer = BUFFER_DURATION;
                     keyboardUpLocked = true;
+                    tryJump();
                 }
             } else if (key === 'ArrowDown') {
                 keys.ArrowDown = true;
-                // 只在未锁定时触发蹲下缓冲
                 if (!keyboardDownLocked) {
-                    duckBufferTimer = BUFFER_DURATION;
                     keyboardDownLocked = true;
+                    tryDuck();
                 }
             } else if (key === ' ') {
                 keys.Space = true;
@@ -292,14 +355,11 @@
             const key = e.key;
             if (key === 'ArrowUp') {
                 keys.ArrowUp = false;
-                keyboardUpLocked = false;  // 松开解锁
+                keyboardUpLocked = false;
             } else if (key === 'ArrowDown') {
                 keys.ArrowDown = false;
-                keyboardDownLocked = false;  // 松开解锁
-                if (!gameOver && playerState === 'duck') {
-                    playerState = 'run';
-                }
-                duckBufferTimer = 0;
+                keyboardDownLocked = false;
+                releaseDuck();
             } else if (key === ' ') {
                 keys.Space = false;
             }
@@ -383,9 +443,11 @@
             if (gp && !gamepadConnected) {
                 gamepadConnected = true;
                 gamepadIcon.classList.add('connected');
+                updateHints();
             } else if (!gp && gamepadConnected) {
                 gamepadConnected = false;
                 gamepadIcon.classList.remove('connected');
+                updateHints();
                 prevGamepadButtons.DPadUp = false;
                 prevGamepadButtons.DPadDown = false;
                 prevGamepadButtons.RB = false;
@@ -405,44 +467,37 @@
 
             const buttons = gp.buttons;
 
-            // 十字键上 (跳跃) - buttons[12]
+            // 十字键上 (跳跃)
             const dpadUpPressed = buttons[12] && (buttons[12].pressed || buttons[12].value > 0.5);
             if (dpadUpPressed && !prevGamepadButtons.DPadUp) {
-                // 刚按下，且未锁定时触发跳跃缓冲
                 if (!gamepadUpLocked) {
-                    jumpBufferTimer = BUFFER_DURATION;
                     gamepadUpLocked = true;
+                    tryJump();
                 }
             } else if (!dpadUpPressed && prevGamepadButtons.DPadUp) {
-                // 刚松开，解锁
                 gamepadUpLocked = false;
             }
             prevGamepadButtons.DPadUp = dpadUpPressed;
 
-            // 十字键下 (蹲下) - buttons[13]
+            // 十字键下 (蹲下)
             const dpadDownPressed = buttons[13] && (buttons[13].pressed || buttons[13].value > 0.5);
             if (dpadDownPressed && !prevGamepadButtons.DPadDown) {
-                // 刚按下，且未锁定时触发蹲下缓冲
                 if (!gamepadDownLocked) {
-                    duckBufferTimer = BUFFER_DURATION;
                     gamepadDownLocked = true;
+                    tryDuck();
                 }
             } else if (!dpadDownPressed && prevGamepadButtons.DPadDown) {
-                // 刚松开，解锁并起身
                 gamepadDownLocked = false;
-                if (!gameOver && playerState === 'duck') {
-                    playerState = 'run';
-                }
-                duckBufferTimer = 0;
+                releaseDuck();
             }
             prevGamepadButtons.DPadDown = dpadDownPressed;
 
-            // RB 键 (加速) - buttons[5]
+            // RB 键 (加速)
             const rbPressed = buttons[5] && (buttons[5].pressed || buttons[5].value > 0.5);
             gamepadRB = rbPressed;
             prevGamepadButtons.RB = rbPressed;
 
-            // Start 键 (重新开始) - buttons[9]
+            // Start 键 (重新开始)
             const startPressed = buttons[9] && (buttons[9].pressed || buttons[9].value > 0.5);
             if (startPressed && !prevGamepadButtons.Start) {
                 if (gameOver) {
@@ -459,7 +514,7 @@
             const isBoosting = keys.Space || gamepadRB;
             speed = isBoosting ? BOOST_SPEED : baseSpeed;
 
-            // 输入缓冲
+            // 缓冲处理
             if (jumpBufferTimer > 0 && playerState === 'run') {
                 playerState = 'jump';
                 jumpVelocity = JUMP_FORCE;
@@ -745,12 +800,14 @@
             gamepadConnected = true;
             gamepadIndex = e.gamepad.index;
             gamepadIcon.classList.add('connected');
+            updateHints();
         });
 
         window.addEventListener('gamepaddisconnected', (e) => {
             gamepadConnected = false;
             gamepadIndex = -1;
             gamepadIcon.classList.remove('connected');
+            updateHints();
             prevGamepadButtons.DPadUp = false;
             prevGamepadButtons.DPadDown = false;
             prevGamepadButtons.RB = false;
@@ -762,6 +819,7 @@
 
         loadHighScore();
         loadTotalTime();
+        updateHints();
         resetGame();
         requestAnimationFrame(gameLoop);
     })();
