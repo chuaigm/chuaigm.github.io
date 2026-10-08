@@ -167,6 +167,10 @@
     const CLOUD_COUNT = 8;
     const ENEMY_MIN_SPACING = 10 * SCALE;
 
+    // 触屏分区：横向 8 等分
+    const TOUCH_ZONES = 8;
+    const TOUCH_ZONE_W = W / TOUCH_ZONES;   // 每区宽 160
+
     const HUD_FONT = 'bold 18px "Courier New", monospace';
     const GO_TITLE_FONT = 'bold 72px "Courier New", monospace';
     const GO_SCORE_FONT = 'bold 30px "Courier New", monospace';
@@ -620,6 +624,13 @@
     let prevEscPressed = false;
     let escPressed = false;
 
+    // 触屏状态：以 pointerId（touch identifier）为键
+    // 每个 touch 记录它落在哪个区域，用于在 touchend 时精确释放对应状态
+    const touchStates = new Map();       // id -> { zone }
+    let touchLeft = false;
+    let touchRight = false;
+    let touchFire = false;
+
     // ==================== 存储 ====================
     function loadHighScore() {
         try {
@@ -645,7 +656,6 @@
     function getFormattedTime() {
         return String(Math.floor(totalPlayTime / 60));
     }
-    // 状态栏 Boss HP 显示：固定显示当前 Boss 的最大血量。
     function getBossHpDisplay() {
         for (let i = 0; i < enemies.length; i++) {
             if (enemies[i].isBoss) return enemies[i].maxHp;
@@ -947,7 +957,6 @@
     }
 
     // ==================== 子弹对撞 ====================
-    // 优化：单次遍历收集冲突对，避免二次遍历 + Set
     function handleBulletClashes() {
         const removed = [];
         for (let i = 0; i < bullets.length; i++) {
@@ -1342,8 +1351,8 @@
     function update(dt) {
         if (gameOver) return;
 
-        const canLeft = keys.ArrowLeft || (gamepadConnected && gamepadLeft);
-        const canRight = keys.ArrowRight || (gamepadConnected && gamepadRight);
+        const canLeft = keys.ArrowLeft || (gamepadConnected && gamepadLeft) || touchLeft;
+        const canRight = keys.ArrowRight || (gamepadConnected && gamepadRight) || touchRight;
         const pSpeed = player.speed * dt;
         if (canLeft) { player.x -= pSpeed; player.dir = -1; }
         if (canRight) { player.x += pSpeed; player.dir = 1; }
@@ -1354,7 +1363,8 @@
         if (player.reloadTimer > 0) player.reloadTimer -= dt;
 
         const canFire = player.activeBullets === 0 && player.reloadTimer <= 0;
-        if ((keys.Space || (gamepadConnected && gamepadA)) && canFire) {
+        const firePressed = keys.Space || (gamepadConnected && gamepadA) || touchFire;
+        if (firePressed && canFire) {
             const splitCount = player.bigBullet ? 1 : (player.splitShot || 1);
             for (let i = 0; i < splitCount; i++) {
                 const spread = splitCount > 1 ? (i - (splitCount - 1) / 2) * 0.22 : 0;
@@ -1441,7 +1451,6 @@
         if (bossMaxHp !== hudLastBossMaxHp) hudDirty = true;
     }
 
-    // 通用：药丸背景 + 文字
     function drawPillWithText(x, y, w, h, bgColor, text, textColor) {
         ctx.fillStyle = bgColor;
         roundRectPath(x, y, w, h, h / 2);
@@ -1538,7 +1547,6 @@
         ctx.stroke();
     }
 
-    // 通用：键帽 + 居中标签
     function drawHintKeyWithLabel(x, y, w, h, label, labelFont) {
         drawHintKey(x, y, w, h);
         ctx.fillStyle = '#0b1a2f';
@@ -1552,7 +1560,6 @@
         ctx.fillStyle = '#000000aa';
         ctx.fillRect(0, 0, W, PLAY_H);
 
-        // 左上角版本号
         ctx.save();
         ctx.textAlign = 'left';
         ctx.textBaseline = 'top';
@@ -1563,7 +1570,6 @@
         ctx.fillText('ver: ' + VERSION, 18, 14);
         ctx.restore();
 
-        // 标题
         ctx.save();
         ctx.textAlign = 'center';
         ctx.textBaseline = 'alphabetic';
@@ -1575,7 +1581,6 @@
         ctx.fillText('GAME OVER', W / 2, PLAY_H / 2 - 130);
         ctx.restore();
 
-        // 分数
         ctx.save();
         ctx.textAlign = 'center';
         ctx.textBaseline = 'alphabetic';
@@ -1584,7 +1589,6 @@
         ctx.fillText('Score: ' + score + '    High score: ' + highScore, W / 2, PLAY_H / 2 - 60);
         ctx.restore();
 
-        // 第一行：左右箭头 + 空格
         const row1Y = PLAY_H / 2 + 10;
         const keyH = 44;
         const keyY1 = row1Y - keyH / 2;
@@ -1627,7 +1631,6 @@
         ctx.fillText(fireText, x1, keyY1 + keyH / 2 + 1);
         ctx.restore();
 
-        // 第二行：ESC / ST / 点击画布
         const row2Y = PLAY_H / 2 + 80;
         const keySize2 = 46;
         const keyY2 = row2Y - keySize2 / 2;
@@ -2264,6 +2267,116 @@
         if (gameOver) restartGame();
     });
 
+    // ---------- 触屏输入 ----------
+    // 屏幕横向 8 等分：
+    //   区域 0  -> 向左移动
+    //   区域 1  -> 向右移动
+    //   区域 4,5,6,7 -> 射击（第 5~8 区，1-based）
+    // 支持多指同时按压，例如左手按 0 区移动、右手按 6 区射击。
+    function zoneFromCanvasX(clientX) {
+        const rect = canvas.getBoundingClientRect();
+        if (rect.width <= 0) return -1;
+        // 把 clientX 映射到逻辑坐标的 X
+        const logicalX = (clientX - rect.left) * (W / rect.width);
+        if (logicalX < 0 || logicalX >= W) return -1;
+        let zone = Math.floor(logicalX / TOUCH_ZONE_W);
+        if (zone < 0) zone = 0;
+        if (zone >= TOUCH_ZONES) zone = TOUCH_ZONES - 1;
+        return zone;
+    }
+
+    function refreshTouchFlags() {
+        touchLeft = false;
+        touchRight = false;
+        touchFire = false;
+        for (const state of touchStates.values()) {
+            const z = state.zone;
+            if (z === 0) touchLeft = true;
+            else if (z === 1) touchRight = true;
+            else if (z >= 4) touchFire = true;
+        }
+    }
+
+    function onTouchStart(e) {
+        initAudio();
+        // 只在游戏区域内响应触摸（区域由 canvas 决定）
+        let consumed = false;
+        for (let i = 0; i < e.changedTouches.length; i++) {
+            const t = e.changedTouches[i];
+            const zone = zoneFromCanvasX(t.clientX);
+            if (zone < 0) continue;
+            consumed = true;
+            // 若该 touch 已经在记录中（几乎不会发生），先移除旧状态
+            touchStates.delete(t.identifier);
+            // 只记录会触发动作的区域（0/1/4/5/6/7），其他区域不记录
+            if (zone === 0 || zone === 1 || zone >= 4) {
+                touchStates.set(t.identifier, { zone });
+            } else {
+                // 中间区（2/3）不触发任何动作，但仍记录 zone 以便 shift 时刷新
+                touchStates.set(t.identifier, { zone });
+            }
+        }
+        if (consumed) {
+            e.preventDefault();
+            refreshTouchFlags();
+            // 若在 gameOver 状态，任意触摸即重开（与点击画布行为一致）
+            if (gameOver) restartGame();
+        }
+    }
+
+    function onTouchMove(e) {
+        // 允许手指在区域内滑动：重新计算 zone 并更新
+        let changed = false;
+        for (let i = 0; i < e.changedTouches.length; i++) {
+            const t = e.changedTouches[i];
+            if (!touchStates.has(t.identifier)) continue;
+            const zone = zoneFromCanvasX(t.clientX);
+            if (zone < 0) continue;
+            const prev = touchStates.get(t.identifier);
+            if (prev.zone !== zone) {
+                prev.zone = zone;
+                changed = true;
+            }
+        }
+        if (changed) {
+            e.preventDefault();
+            refreshTouchFlags();
+        }
+    }
+
+    function onTouchEnd(e) {
+        let changed = false;
+        for (let i = 0; i < e.changedTouches.length; i++) {
+            const t = e.changedTouches[i];
+            if (touchStates.has(t.identifier)) {
+                touchStates.delete(t.identifier);
+                changed = true;
+            }
+        }
+        if (changed) {
+            e.preventDefault();
+            refreshTouchFlags();
+        }
+    }
+
+    function onTouchCancel(e) {
+        onTouchEnd(e);
+    }
+
+    // touch-action: none 已经通过 CSS 应用于 canvas，避免页面被默认手势劫持
+    canvas.addEventListener('touchstart', onTouchStart, { passive: false });
+    canvas.addEventListener('touchmove', onTouchMove, { passive: false });
+    canvas.addEventListener('touchend', onTouchEnd, { passive: false });
+    canvas.addEventListener('touchcancel', onTouchCancel, { passive: false });
+
+    // 窗口失焦时清空触屏状态，避免"卡键"
+    window.addEventListener('blur', () => {
+        touchStates.clear();
+        touchLeft = false;
+        touchRight = false;
+        touchFire = false;
+    });
+
     // ==================== 重新开始 ====================
     function restartGame() {
         if (isPlaying) saveTotalTime();
@@ -2291,6 +2404,11 @@
         gamepadA = false;
         escPressed = false;
         prevEscPressed = false;
+        // 触屏状态也清空，避免重开后残留
+        touchStates.clear();
+        touchLeft = false;
+        touchRight = false;
+        touchFire = false;
         sessionStartTime = performance.now();
         isPlaying = true;
         hudDirty = true;
