@@ -8,111 +8,130 @@
         * { margin: 0; padding: 0; box-sizing: border-box; user-select: none; }
         html, body {
             width: 100%;
-            overflow-x: hidden;
+            height: 100%;
+            overflow: hidden;
         }
         body {
             background: #0b1a2f;
-            min-height: 100vh;
             display: flex;
             justify-content: center;
             align-items: flex-start;
-            padding: 8px;
             font-family: 'Courier New', Courier, monospace;
+            padding: 6px;
         }
         .game-container {
             background: #1e2f4a;
-            padding: 12px 12px 10px 12px;
-            border-radius: 24px;
+            padding: 10px 10px 8px 10px;
+            border-radius: 20px;
             box-shadow: 0 16px 32px rgba(0, 0, 0, 0.6);
             display: flex;
             flex-direction: column;
             align-items: center;
             max-width: 100%;
-            width: 100%;
+            max-height: 100%;
         }
         canvas {
             display: block;
             width: 100%;
-            max-width: 1280px;
             height: auto;
             aspect-ratio: 1280 / 720;
-            border-radius: 16px;
+            border-radius: 14px;
             box-shadow: inset 0 0 20px #00000055, 0 6px 12px black;
             touch-action: none;
         }
+
+        /* 状态栏：不换行，允许收缩 */
         .status-bar {
             display: flex;
-            flex-wrap: wrap;
+            flex-wrap: nowrap;
             justify-content: center;
             align-items: center;
-            margin-top: 12px;
+            margin-top: 8px;
             width: 100%;
             max-width: 1280px;
             color: #c4e2f0;
             font-weight: bold;
-            font-size: 1.1rem;
             text-shadow: 0 2px 4px black;
-            gap: 8px;
+            gap: 6px;
         }
-        .status-bar .score-box,
-        .status-bar .hp-box,
-        .status-bar .boss-box,
-        .status-bar .high-score-box,
-        .status-bar .time-box {
+        .status-bar > span {
             background: #0d1b2a;
-            padding: 6px 14px;
+            padding: 5px 10px;
             border-radius: 40px;
             box-shadow: inset 0 1px 6px #00000088, 0 4px 4px #00000033;
             white-space: nowrap;
-            font-size: clamp(0.75rem, 2.4vw, 1.05rem);
+            font-size: clamp(0.7rem, 1.6vw, 1.0rem);
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            flex-shrink: 1;
+            min-width: 0;
         }
         .status-bar .hp-box { color: #f28b82; }
         .status-bar .boss-box { color: #ffd966; }
         .status-bar .high-score-box { background: #2a3d5c; color: #ffd966; }
         .status-bar .time-box { background: #1d3a2f; color: #9bf6b0; }
-        .key-hint {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 10px;
-            color: #aac9e0;
-            font-size: clamp(0.75rem, 2.2vw, 1.05rem);
-            font-weight: bold;
+        .status-bar .key-hint {
             background: #0d1b2a90;
-            padding: 6px 14px;
-            border-radius: 40px;
-            white-space: nowrap;
+            color: #aac9e0;
+            display: inline-flex;
             align-items: center;
-            justify-content: center;
+            gap: 8px;
+            padding: 5px 10px;
+        }
+        .key-hint .hint-item {
+            display: inline-flex;
+            align-items: center;
+            gap: 3px;
         }
         .key-hint kbd {
             background: #f0f3f8;
             color: #0b1a2f;
             border-radius: 5px;
-            padding: 2px 8px;
+            padding: 1px 6px;
             font-weight: bold;
-            margin: 0 2px;
             box-shadow: 0 2px 0 #5a6f88;
-            font-size: 1em;
+            font-size: 0.9em;
             display: inline-flex;
             align-items: center;
             justify-content: center;
-            min-width: 24px;
+            min-width: 20px;
+        }
+
+        /* 文字标签：默认显示 */
+        .status-bar .label { display: inline; }
+        /* kbd 上的操作说明文字 */
+        .key-hint .hint-label { display: inline; }
+
+        /* 窄屏（手机竖屏或小屏）：隐藏文字标签，只保留图标和数值 */
+        @media (max-width: 720px) {
+            .status-bar .label { display: none; }
+            .status-bar > span { padding: 4px 8px; gap: 2px; }
+            .key-hint .hint-label { display: none; }
+            .key-hint { gap: 4px; }
+        }
+
+        /* 超窄屏：进一步压缩 */
+        @media (max-width: 420px) {
+            .status-bar { gap: 4px; }
+            .status-bar > span { padding: 3px 7px; font-size: 0.72rem; }
+            .key-hint kbd { padding: 1px 5px; min-width: 18px; font-size: 0.85em; }
         }
     </style>
 </head>
 <body>
-<div class="game-container">
+<div class="game-container" id="gameContainer">
     <canvas id="gameCanvas" width="1280" height="720"></canvas>
-    <div class="status-bar">
-        <span class="score-box">🏆 分数: <span id="scoreDisplay">0</span></span>
-        <span class="high-score-box">📀 最高分: <span id="highScoreDisplay">0</span></span>
-        <span class="time-box">⏱️ 游戏时长: <span id="timeDisplay">0</span> 分</span>
-        <span class="hp-box">❤️ 生命: <span id="hpDisplay">5</span></span>
-        <span class="boss-box">👑 Boss: <span id="bossDisplay">0</span></span>
+    <div class="status-bar" id="statusBar">
+        <span class="score-box">🏆 <span class="label">分数:</span> <span id="scoreDisplay">0</span></span>
+        <span class="high-score-box">📀 <span class="label">最高分:</span> <span id="highScoreDisplay">0</span></span>
+        <span class="time-box">⏱️ <span class="label">时长:</span> <span id="timeDisplay">0</span><span class="label">分</span></span>
+        <span class="hp-box">❤️ <span class="label">生命:</span> <span id="hpDisplay">5</span></span>
+        <span class="boss-box">👑 <span class="label">Boss:</span> <span id="bossDisplay">0</span></span>
         <div class="key-hint" id="hintBar">
-            <span><kbd>←</kbd><kbd>→</kbd>移动</span>
-            <span><kbd id="kFire">空格</kbd>发射</span>
-            <span><kbd id="kRestart">R</kbd>重开</span>
+            <span class="hint-item"><kbd>←</kbd><kbd>→</kbd><span class="hint-label">移动</span></span>
+            <span class="hint-item"><kbd id="kFire">空格</kbd><span class="hint-label">发射</span></span>
+            <span class="hint-item"><kbd id="kRestart">R</kbd><span class="hint-label">重开</span></span>
         </div>
     </div>
 </div>
@@ -123,6 +142,8 @@
     // ==================== 常量配置 ====================
     const canvas = document.getElementById('gameCanvas');
     const ctx = canvas.getContext('2d');
+    const container = document.getElementById('gameContainer');
+    const statusBar = document.getElementById('statusBar');
     const scoreSpan = document.getElementById('scoreDisplay');
     const highScoreSpan = document.getElementById('highScoreDisplay');
     const timeSpan = document.getElementById('timeDisplay');
@@ -131,7 +152,7 @@
     const kFire = document.getElementById('kFire');
     const kRestart = document.getElementById('kRestart');
 
-    // 逻辑坐标系统（保持不变）
+    // 逻辑坐标系统
     const W = 1280, H = 720;
     const FPS_BASE = 60;
     const BULLET_GRAVITY = 0.18 * FPS_BASE * FPS_BASE;
@@ -180,10 +201,8 @@
         }
     };
 
-    // ==================== 画布高清适配 ====================
-    // 逻辑坐标 1280x720 保持不变，通过 setTransform 映射到实际像素
+    // ==================== 画布高清适配（含横屏铺满高度） ====================
     function applyCanvasTransform() {
-        // 每帧开头重置变换，确保所有绘制基于逻辑坐标
         ctx.setTransform(
             canvas.width / W,
             0,
@@ -194,29 +213,82 @@
         );
     }
 
+    // 状态栏 + 容器 padding 等占用的高度（估算，用于横屏时的高度约束）
+    // 实际会用测量值动态计算
+    function measureChromeHeight() {
+        // game-container 上下 padding + status-bar 高度 + margin
+        const containerStyle = getComputedStyle(container);
+        const padTop = parseFloat(containerStyle.paddingTop) || 0;
+        const padBottom = parseFloat(containerStyle.paddingBottom) || 0;
+        const sbStyle = getComputedStyle(statusBar);
+        const sbHeight = statusBar.offsetHeight || 0;
+        const sbMarginTop = parseFloat(sbStyle.marginTop) || 0;
+        // body padding
+        const bodyStyle = getComputedStyle(document.body);
+        const bodyPadTop = parseFloat(bodyStyle.paddingTop) || 0;
+        const bodyPadBottom = parseFloat(bodyStyle.paddingBottom) || 0;
+        // 给一点安全余量，避免浏览器地址栏/系统栏遮挡
+        return padTop + padBottom + sbHeight + sbMarginTop + bodyPadTop + bodyPadBottom + 4;
+    }
+
     function resizeCanvas() {
         const dpr = window.devicePixelRatio || 1;
-        // 使用 getBoundingClientRect 拿到 CSS 像素宽度（更准确）
-        const rect = canvas.getBoundingClientRect();
-        let cssW = rect.width;
-        if (!cssW || cssW < 1) {
-            // 极少数情况下还没布局完成，退回到父容器宽度
-            cssW = Math.min(window.innerWidth - 40, 1280);
-        }
+
+        // 可用宽度（容器内宽减去容器左右 padding）
+        const containerStyle = getComputedStyle(container);
+        const containerPadX = (parseFloat(containerStyle.paddingLeft) || 0) +
+                              (parseFloat(containerStyle.paddingRight) || 0);
+        // 容器允许的最大宽度（CSS 里 max-width:100% 会受 body 限制）
+        const bodyStyle = getComputedStyle(document.body);
+        const bodyPadX = (parseFloat(bodyStyle.paddingLeft) || 0) +
+                         (parseFloat(bodyStyle.paddingRight) || 0);
+        const availWidth = window.innerWidth - bodyPadX - containerPadX;
+
+        // 可用高度（窗口高度减去状态栏等占用的部分），再换算成对应的 CSS 宽度
+        const chromeH = measureChromeHeight();
+        const availHeight = window.innerHeight - chromeH;
+        const availWidthFromHeight = availHeight * (W / H);
+
+        // 取宽度和高度约束的较小值，这样横屏时按高度铺满，竖屏时按宽度铺满
+        let cssW = Math.min(availWidth, availWidthFromHeight);
+        // 桌面端最大不超过 1280
+        cssW = Math.min(cssW, 1280);
+        // 兜底，避免 0 或负值
+        if (!isFinite(cssW) || cssW < 100) cssW = Math.max(100, Math.min(availWidth, 1280));
+
         const cssH = cssW * (H / W);
 
+        canvas.style.width = cssW + 'px';
         canvas.style.height = cssH + 'px';
         canvas.width  = Math.round(cssW * dpr);
         canvas.height = Math.round(cssH * dpr);
 
-        // 立即应用变换，避免在下一帧前出现闪烁
         applyCanvasTransform();
     }
 
-    window.addEventListener('resize', resizeCanvas);
-    window.addEventListener('orientationchange', resizeCanvas);
+    // 用 ResizeObserver 监听容器/状态栏尺寸变化，更精准
+    let resizeScheduled = false;
+    function scheduleResize() {
+        if (resizeScheduled) return;
+        resizeScheduled = true;
+        requestAnimationFrame(() => {
+            resizeScheduled = false;
+            resizeCanvas();
+        });
+    }
+
+    window.addEventListener('resize', scheduleResize);
+    window.addEventListener('orientationchange', () => {
+        // 旋转后延迟一点再算，等布局稳定
+        setTimeout(scheduleResize, 120);
+        setTimeout(scheduleResize, 350);
+    });
     if (window.visualViewport) {
-        window.visualViewport.addEventListener('resize', resizeCanvas);
+        window.visualViewport.addEventListener('resize', scheduleResize);
+    }
+    if (window.ResizeObserver) {
+        const ro = new ResizeObserver(scheduleResize);
+        ro.observe(statusBar);
     }
 
     // ==================== 背景元素（山与云） ====================
@@ -1488,10 +1560,7 @@
     let buffPulse = 0;
 
     function draw() {
-        // 每帧开始重置变换，确保逻辑坐标 1280x720 映射到实际像素
         applyCanvasTransform();
-
-        // 用逻辑坐标清屏
         ctx.clearRect(0, 0, W, H);
 
         buffPulse = (buffPulse + 0.1) % (Math.PI * 2);
@@ -1504,18 +1573,12 @@
         ctx.fillStyle = skyGrad;
         ctx.fillRect(0, 0, W, H);
 
-        // 云朵
         drawClouds();
-
-        // 远山
         drawMountains();
-
         drawTerrain();
 
-        // 道具
         for (let p of powerups) drawPowerup(p);
 
-        // 敌人
         for (let e of enemies) {
             const colors = e.isBoss ? COLOR.boss :
                           (e.hasSplitShot ? COLOR.enemySplit :
@@ -1523,32 +1586,23 @@
             drawTank(e, colors[0], colors[1], colors[2], true);
         }
 
-        // 玩家
         drawTank(player, COLOR.player[0], COLOR.player[1], COLOR.player[2], false);
 
-        // 子弹
         for (let b of bullets) drawBullet(b);
         if (airstrikeBullet) drawAirstrikeBullet(airstrikeBullet);
 
-        // 爆炸
         for (let e of explosions) drawExplosion(e);
 
-        // 血条
         for (let e of enemies) {
             if (e.maxHp > 1) drawHealthBar(e.x, e.w, e.y, e.hp, e.maxHp);
         }
         drawHealthBar(player.x, player.w, player.y, playerHP, maxHP);
 
-        // 静止警告
         if (stillWarningActive) drawStillWarning();
-
-        // 护盾
         if (player.shield > 0) drawShield();
 
-        // 装填条
         drawReloadBar();
 
-        // 游戏结束
         if (gameOver) drawGameOver();
 
         ctx.textAlign = 'left';
@@ -1963,7 +2017,6 @@
             angle = dir === 1 ? -0.5 : Math.PI + 0.5;
         }
 
-        // 炮管
         ctx.save();
         ctx.translate(turretX, turretY);
         ctx.rotate(angle);
@@ -1977,7 +2030,6 @@
         ctx.globalAlpha = 1.0;
         ctx.restore();
 
-        // 车身
         ctx.fillStyle = bodyColor;
         ctx.beginPath();
         if (dir === 1) {
@@ -2000,7 +2052,6 @@
         ctx.lineWidth = 2;
         ctx.stroke();
 
-        // 高光
         ctx.fillStyle = lightColor;
         ctx.globalAlpha = 0.35;
         if (dir === 1) {
@@ -2010,7 +2061,6 @@
         }
         ctx.globalAlpha = 1.0;
 
-        // 履带
         ctx.fillStyle = '#2a2a2a';
         roundRect(x - 4, baseY - 13, w + 8, 13, 5);
         ctx.fill();
@@ -2030,7 +2080,6 @@
         roundRect(x - 4, baseY - 13, w + 8, 13, 5);
         ctx.stroke();
 
-        // 炮塔
         const turretW = w * 0.42;
         const turretH = h * 0.55;
         const turretBaseX = dir === 1 ? x + w * 0.22 : x + w * 0.36;
@@ -2051,7 +2100,6 @@
         roundRect(turretBaseX + turretW * 0.25, y - 7, turretW * 0.5, 7, 3);
         ctx.fill();
 
-        // Boss 皇冠
         if (tank.isBoss) {
             ctx.font = '26px monospace';
             ctx.textAlign = 'center';
@@ -2063,7 +2111,6 @@
             ctx.shadowBlur = 0;
         }
 
-        // 炮口就绪指示
         if (!isEnemy && tank.activeBullets === 0 && tank.reloadTimer <= 0) {
             const angleM = dir === 1 ? -0.5 : Math.PI + 0.5;
             const muzzleX = turretX + Math.cos(angleM) * barrelLength;
@@ -2275,10 +2322,14 @@
     loadHighScore();
     loadTotalTime();
     updateHints();
-    // 先做一次尺寸适配，再开始游戏
     resizeCanvas();
     restartGame();
     spawnEnemy(false);
+    // 等布局稳定后再算一次（首次渲染时状态栏可能还没撑开高度）
+    requestAnimationFrame(() => {
+        resizeCanvas();
+        requestAnimationFrame(resizeCanvas);
+    });
     requestAnimationFrame(gameLoop);
 })();
 </script>
