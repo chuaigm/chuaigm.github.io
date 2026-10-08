@@ -2,40 +2,52 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>坦克大战</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; user-select: none; }
+        html, body {
+            width: 100%;
+            overflow-x: hidden;
+        }
         body {
             background: #0b1a2f;
             min-height: 100vh;
             display: flex;
             justify-content: center;
-            align-items: center;
+            align-items: flex-start;
+            padding: 8px;
             font-family: 'Courier New', Courier, monospace;
         }
         .game-container {
             background: #1e2f4a;
-            padding: 20px 20px 18px 20px;
+            padding: 12px 12px 10px 12px;
             border-radius: 24px;
             box-shadow: 0 16px 32px rgba(0, 0, 0, 0.6);
             display: flex;
             flex-direction: column;
             align-items: center;
+            max-width: 100%;
+            width: 100%;
         }
         canvas {
             display: block;
-            width: 1280px;
-            height: 720px;
+            width: 100%;
+            max-width: 1280px;
+            height: auto;
+            aspect-ratio: 1280 / 720;
             border-radius: 16px;
             box-shadow: inset 0 0 20px #00000055, 0 6px 12px black;
+            touch-action: none;
         }
         .status-bar {
             display: flex;
-            justify-content: space-between;
+            flex-wrap: wrap;
+            justify-content: center;
             align-items: center;
             margin-top: 12px;
-            width: 1280px;
+            width: 100%;
+            max-width: 1280px;
             color: #c4e2f0;
             font-weight: bold;
             font-size: 1.1rem;
@@ -48,11 +60,11 @@
         .status-bar .high-score-box,
         .status-bar .time-box {
             background: #0d1b2a;
-            padding: 6px 16px;
+            padding: 6px 14px;
             border-radius: 40px;
             box-shadow: inset 0 1px 6px #00000088, 0 4px 4px #00000033;
             white-space: nowrap;
-            font-size: 1.05rem;
+            font-size: clamp(0.75rem, 2.4vw, 1.05rem);
         }
         .status-bar .hp-box { color: #f28b82; }
         .status-bar .boss-box { color: #ffd966; }
@@ -60,15 +72,17 @@
         .status-bar .time-box { background: #1d3a2f; color: #9bf6b0; }
         .key-hint {
             display: flex;
+            flex-wrap: wrap;
             gap: 10px;
             color: #aac9e0;
-            font-size: 1.05rem;
+            font-size: clamp(0.75rem, 2.2vw, 1.05rem);
             font-weight: bold;
             background: #0d1b2a90;
-            padding: 6px 16px;
+            padding: 6px 14px;
             border-radius: 40px;
             white-space: nowrap;
             align-items: center;
+            justify-content: center;
         }
         .key-hint kbd {
             background: #f0f3f8;
@@ -78,7 +92,7 @@
             font-weight: bold;
             margin: 0 2px;
             box-shadow: 0 2px 0 #5a6f88;
-            font-size: 1rem;
+            font-size: 1em;
             display: inline-flex;
             align-items: center;
             justify-content: center;
@@ -117,6 +131,7 @@
     const kFire = document.getElementById('kFire');
     const kRestart = document.getElementById('kRestart');
 
+    // 逻辑坐标系统（保持不变）
     const W = 1280, H = 720;
     const FPS_BASE = 60;
     const BULLET_GRAVITY = 0.18 * FPS_BASE * FPS_BASE;
@@ -144,8 +159,6 @@
     const STILL_CHECK_DELAY = 3.0;
 
     const CLOUD_COUNT = 8;
-
-    // 敌人之间最小水平间距（用于防重叠）
     const ENEMY_MIN_SPACING = 10 * SCALE;
 
     const COLOR = {
@@ -166,6 +179,45 @@
             big: ['#e67e22', '#f39c12']
         }
     };
+
+    // ==================== 画布高清适配 ====================
+    // 逻辑坐标 1280x720 保持不变，通过 setTransform 映射到实际像素
+    function applyCanvasTransform() {
+        // 每帧开头重置变换，确保所有绘制基于逻辑坐标
+        ctx.setTransform(
+            canvas.width / W,
+            0,
+            0,
+            canvas.height / H,
+            0,
+            0
+        );
+    }
+
+    function resizeCanvas() {
+        const dpr = window.devicePixelRatio || 1;
+        // 使用 getBoundingClientRect 拿到 CSS 像素宽度（更准确）
+        const rect = canvas.getBoundingClientRect();
+        let cssW = rect.width;
+        if (!cssW || cssW < 1) {
+            // 极少数情况下还没布局完成，退回到父容器宽度
+            cssW = Math.min(window.innerWidth - 40, 1280);
+        }
+        const cssH = cssW * (H / W);
+
+        canvas.style.height = cssH + 'px';
+        canvas.width  = Math.round(cssW * dpr);
+        canvas.height = Math.round(cssH * dpr);
+
+        // 立即应用变换，避免在下一帧前出现闪烁
+        applyCanvasTransform();
+    }
+
+    window.addEventListener('resize', resizeCanvas);
+    window.addEventListener('orientationchange', resizeCanvas);
+    if (window.visualViewport) {
+        window.visualViewport.addEventListener('resize', resizeCanvas);
+    }
 
     // ==================== 背景元素（山与云） ====================
     let mountains = [];
@@ -633,11 +685,9 @@
         stillCheckElapsed = 0;
     }
 
-    // ==================== 敌人生成（仅生成时防重叠） ====================
-    // 检测在指定 x 位置生成敌人时是否会与现有敌人重叠
+    // ==================== 敌人生成 ====================
     function wouldOverlap(x, w) {
         for (const e of enemies) {
-            // 两个矩形的水平区间 [x, x+w] 和 [e.x, e.x+e.w] 是否相交（含最小间距）
             const leftA = x - ENEMY_MIN_SPACING;
             const rightA = x + w + ENEMY_MIN_SPACING;
             const leftB = e.x;
@@ -653,22 +703,16 @@
         const w = isBoss ? 78 * SCALE : 52 * SCALE;
         const h = isBoss ? 36 * SCALE : 24 * SCALE;
 
-        // 随机选择方向
         let dir = Math.random() < 0.5 ? 1 : -1;
-        // 起始位置（屏幕外）
         let startX = dir === 1 ? -100 * SCALE : W + 100 * SCALE;
 
-        // 如果起始位置与现有敌人重叠，则将生成位置向外（更远离屏幕）偏移，直到不重叠
-        // 最多向外偏移 10 次，每次增加半个敌人宽度
         const offsetStep = w * 0.6;
         let attempts = 0;
         while (wouldOverlap(startX, w) && attempts < 10) {
-            // 向屏幕外移动
             startX += dir === 1 ? -offsetStep : offsetStep;
             attempts++;
         }
 
-        // 如果偏移 10 次后仍然重叠（极端情况），换另一侧生成
         if (wouldOverlap(startX, w)) {
             dir = -dir;
             startX = dir === 1 ? -100 * SCALE : W + 100 * SCALE;
@@ -677,7 +721,6 @@
                 startX += dir === 1 ? -offsetStep : offsetStep;
                 attempts++;
             }
-            // 如果还是重叠（极其罕见），放弃本次生成
             if (wouldOverlap(startX, w)) return;
         }
 
@@ -1445,6 +1488,12 @@
     let buffPulse = 0;
 
     function draw() {
+        // 每帧开始重置变换，确保逻辑坐标 1280x720 映射到实际像素
+        applyCanvasTransform();
+
+        // 用逻辑坐标清屏
+        ctx.clearRect(0, 0, W, H);
+
         buffPulse = (buffPulse + 0.1) % (Math.PI * 2);
 
         // 天空
@@ -2226,6 +2275,8 @@
     loadHighScore();
     loadTotalTime();
     updateHints();
+    // 先做一次尺寸适配，再开始游戏
+    resizeCanvas();
     restartGame();
     spawnEnemy(false);
     requestAnimationFrame(gameLoop);
