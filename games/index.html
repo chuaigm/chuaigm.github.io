@@ -14,20 +14,31 @@
 
     <body>
 <div style="text-align:center;clear:both;">
-<!--
-<script src="/gg_bd_ad_720x90.js" type="text/javascript"></script>
-<script src="/follow.js" type="text/javascript"></script>
--->
+
 </div>
 
-        <td colspan="2"><div align="center"><a target="_blank"><img src="./title.png" width="400" height="100" border="0"></a></div></td>
+        <td colspan="2"><div align="center"><canvas id="title-canvas" width="400" height="100"></canvas></div></td>
+        <script>
+            const canvas = document.getElementById('title-canvas');
+            const ctx = canvas.getContext('2d');
+            const gradient = ctx.createLinearGradient(0, 0, canvas.width, 0);
+            gradient.addColorStop(0, '#ff6600');
+            gradient.addColorStop(0.5, '#ffff00');
+            gradient.addColorStop(1, '#66ff66');
+            ctx.font = 'bold 60px sans-serif';
+            ctx.fillStyle = gradient;
+            ctx.textAlign = 'center';
+            ctx.shadowColor = '#ff69b4';
+            ctx.shadowBlur = 30;
+            ctx.fillText('Chuai神 游戏', canvas.width / 2, 70);
+        </script>
         
         <ul id="gallery">
         <!-- The instagram photos will go here as <li> elements -->
         <li><a href="./jump_and_squat/index.html" target="_blank" href="#"><img src="./jump_and_squat/games.png"></a></li>
         <li><a href="./tank_war_field/index.html" target="_blank" href="#"><img src="./tank_war_field/games.png"></a></li>
         </ul>
-        
+
     </body>
 </html>
 
