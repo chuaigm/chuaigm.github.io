@@ -2,809 +2,622 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>上下躲避 · 跑酷</title>
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-            user-select: none;
-        }
+        * { margin: 0; padding: 0; box-sizing: border-box; user-select: none; }
+        html, body { width: 100%; height: 100%; overflow: hidden; }
         body {
             background: #0b1a2f;
-            min-height: 100vh;
             display: flex;
             justify-content: center;
             align-items: center;
             font-family: 'Courier New', Courier, monospace;
+            padding: 6px;
         }
         .game-container {
             background: #1e2f4a;
-            padding: 20px 20px 18px 20px;
-            border-radius: 24px;
+            padding: 10px;
+            border-radius: 20px;
             box-shadow: 0 16px 32px rgba(0, 0, 0, 0.6);
             display: flex;
             flex-direction: column;
             align-items: center;
+            max-width: 100%;
+            max-height: 100%;
+            transition: border-radius 0.2s;
+        }
+        .canvas-wrap {
+            position: relative;
+            width: 100%;
+            max-width: 1280px;
+            line-height: 0;
         }
         canvas {
             display: block;
-            width: 800px;
-            height: 320px;
-            border-radius: 16px;
+            width: 100%;
+            height: auto;
+            aspect-ratio: 1280 / 720;
+            border-radius: 14px;
             box-shadow: inset 0 0 20px #00000055, 0 6px 12px black;
+            touch-action: none;
         }
-        .status-bar {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-top: 14px;
-            width: 800px;
-            color: #c4e2f0;
-            font-weight: bold;
-            font-size: 1.1rem;
-            text-shadow: 0 2px 4px black;
-            gap: 6px;
+        .fullscreen-btn {
+            position: absolute;
+            top: 6px; right: 6px;
+            width: 30px; height: 30px;
+            min-width: 30px; min-height: 30px;
+            border: none;
+            border-radius: 8px;
+            background: rgba(255, 255, 255, 0.08);
+            color: rgba(255, 255, 255, 0.45);
+            display: flex; align-items: center; justify-content: center;
+            cursor: pointer;
+            touch-action: manipulation;
+            -webkit-tap-highlight-color: transparent;
+            backdrop-filter: blur(3px);
+            -webkit-backdrop-filter: blur(3px);
+            transition: background 0.15s, color 0.15s, transform 0.1s;
+            z-index: 10; padding: 0; outline: none;
         }
-        .status-bar .score-box,
-        .status-bar .high-score-box,
-        .status-bar .time-box {
-            background: #0d1b2a;
-            padding: 7px 14px;
-            border-radius: 40px;
-            box-shadow: inset 0 1px 6px #00000088, 0 4px 4px #00000033;
-            letter-spacing: 1px;
-            white-space: nowrap;
-            font-size: 1rem;
+        .fullscreen-btn:hover { background: rgba(255, 255, 255, 0.18); color: rgba(255, 255, 255, 0.8); }
+        .fullscreen-btn:active { background: rgba(255, 255, 255, 0.28); color: #ffffff; transform: scale(0.92); }
+        .fullscreen-btn svg { width: 15px; height: 15px; display: block; pointer-events: none; }
+        @media (max-width: 720px) {
+            .fullscreen-btn { width: 26px; height: 26px; top: 5px; right: 5px; border-radius: 7px; }
+            .fullscreen-btn svg { width: 13px; height: 13px; }
         }
-        .status-bar .high-score-box {
-            background: #2a3d5c;
-            color: #ffd966;
+        @media (max-width: 420px) {
+            .fullscreen-btn { width: 22px; height: 22px; top: 4px; right: 4px; border-radius: 6px; }
+            .fullscreen-btn svg { width: 11px; height: 11px; }
         }
-        .status-bar .time-box {
-            background: #1d3a2f;
-            color: #9bf6b0;
+        .game-container.is-fullscreen {
+            width: 100vw; height: 100vh;
+            max-width: none; max-height: none;
+            border-radius: 0; padding: 0; background: #000;
+            justify-content: center; align-items: center;
         }
-        .gamepad-icon {
-            font-size: 1.3rem;
-            background: #0d1b2a;
-            padding: 5px 12px;
-            border-radius: 30px;
-            box-shadow: inset 0 1px 6px #00000088, 0 4px 4px #00000033;
-            color: #7ee8a2;
-            display: none;
-            line-height: 1;
-            white-space: nowrap;
+        .game-container.is-fullscreen .canvas-wrap {
+            width: 100%; height: 100%; max-width: none;
+            display: flex; align-items: center; justify-content: center;
         }
-        .gamepad-icon.connected {
-            display: inline-block;
+        .game-container.is-fullscreen canvas {
+            width: auto !important;
+            height: auto !important;
+            max-width: 100%;
+            max-height: 100%;
+            aspect-ratio: 1280 / 720;
+            border-radius: 0; box-shadow: none;
         }
-        .key-hint {
-            display: flex;
-            gap: 8px;
-            color: #aac9e0;
-            font-size: 0.78rem;
-            background: #0d1b2a90;
-            padding: 6px 12px;
-            border-radius: 40px;
-            white-space: nowrap;
-            align-items: center;
-        }
-        .key-hint kbd {
-            background: #f0f3f8;
-            color: #0b1a2f;
-            border-radius: 5px;
-            padding: 1px 6px;
-            font-weight: bold;
-            margin: 0 1px;
-            box-shadow: 0 2px 0 #5a6f88;
-            font-size: 0.78rem;
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            min-width: 18px;
-        }
-        .key-hint kbd.rb {
-            background: #ffd966;
+        .game-container.is-fullscreen .fullscreen-btn {
+            top: 8px; right: 8px;
+            background: rgba(255, 255, 255, 0.10);
+            color: rgba(255, 255, 255, 0.55);
+            z-index: 30;
         }
     </style>
 </head>
 <body>
-<div class="game-container">
-    <canvas id="gameCanvas" width="800" height="320"></canvas>
-    <div class="status-bar">
-        <span class="score-box">🏆 分数: <span id="scoreDisplay">0</span></span>
-        <span class="high-score-box">📀 最高分: <span id="highScoreDisplay">0</span></span>
-        <span class="time-box">⏱️ 累计: <span id="timeDisplay">0</span> 分</span>
-        <span class="gamepad-icon" id="gamepadIcon">🎮</span>
-        <div class="key-hint" id="hintBar">
-            <span><kbd id="kUp">↑</kbd><span id="tUp">跳</span></span>
-            <span><kbd id="kDown">↓</kbd><span id="tDown">蹲</span></span>
-            <span><kbd id="kBoost">空格</kbd><span>加速</span></span>
-            <span><kbd id="kRestart">R</kbd><span>重开</span></span>
-        </div>
+<div class="game-container" id="gameContainer">
+    <div class="canvas-wrap" id="canvasWrap">
+        <canvas id="gameCanvas" width="1280" height="720"></canvas>
+        <button class="fullscreen-btn" id="fullscreenBtn" aria-label="全屏" title="全屏">
+            <svg id="fsIconExpand" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                 stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M4 9V4h5"/><path d="M20 9V4h-5"/>
+                <path d="M4 15v5h5"/><path d="M20 15v5h-5"/>
+            </svg>
+            <svg id="fsIconCompress" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                 stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"
+                 style="display:none;">
+                <path d="M9 4v5H4"/><path d="M15 4v5h5"/>
+                <path d="M9 20v-5H4"/><path d="M15 20v-5h5"/>
+            </svg>
+        </button>
     </div>
 </div>
 <script>
-    (function() {
-        const canvas = document.getElementById('gameCanvas');
-        const ctx = canvas.getContext('2d');
-        const scoreSpan = document.getElementById('scoreDisplay');
-        const highScoreSpan = document.getElementById('highScoreDisplay');
-        const timeSpan = document.getElementById('timeDisplay');
-        const gamepadIcon = document.getElementById('gamepadIcon');
+(function() {
+    'use strict';
 
-        const kUp = document.getElementById('kUp');
-        const kDown = document.getElementById('kDown');
-        const kBoost = document.getElementById('kBoost');
-        const kRestart = document.getElementById('kRestart');
+    const VERSION = '20261008';
 
-        // ---------- 固定尺寸参数 ----------
-        const W = 800, H = 320;
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    const container = document.getElementById('gameContainer');
+    const fullscreenBtn = document.getElementById('fullscreenBtn');
+    const fsIconExpand = document.getElementById('fsIconExpand');
+    const fsIconCompress = document.getElementById('fsIconCompress');
 
-        // ---------- 帧率无关基准 ----------
-        const FPS_BASE = 60;
+    // ---------- 画布尺寸 ----------
+    const W = 1280, H = 720;
+    const HUD_H = 56;
+    const PLAY_H = H - HUD_H;
 
-        // ---------- 玩家参数 ----------
-        const PLAYER_WIDTH = 36;
-        const PLAYER_HEIGHT = 62;
-        const DUCK_HEIGHT = 30;
-        const PLAYER_X = 100;
+    const FPS_BASE = 60;
 
-        // 物理参数（转换为秒单位）
-        // 原来 GRAVITY = 1.0 像素/帧² → 1.0 * 3600 = 3600 像素/秒²
-        // 原来 JUMP_FORCE = -15 像素/帧 → -15 * 60 = -900 像素/秒
-        const GRAVITY = 1.0 * FPS_BASE * FPS_BASE;   // 3600 像素/秒²
-        const JUMP_FORCE = -15 * FPS_BASE;            // -900 像素/秒
+    // ---------- 缩放比例（相对原 800x320 设计） ----------
+    const H_SCALE = W / 800;        // 水平 1.6
+    const V_SCALE = PLAY_H / 320;   // 垂直
 
-        // 三种垂直状态
-        let playerState = 'run';
-        let playerY = H - PLAYER_HEIGHT;
-        let jumpVelocity = 0;
+    // ---------- 玩家参数 ----------
+    const PLAYER_WIDTH = 36 * H_SCALE;
+    const PLAYER_HEIGHT = 62 * V_SCALE;
+    const DUCK_HEIGHT = 30 * V_SCALE;
+    const PLAYER_X = 100 * H_SCALE;
 
-        // 玩家碰撞箱
-        function getPlayerRect() {
-            let h = (playerState === 'duck') ? DUCK_HEIGHT : PLAYER_HEIGHT;
-            let y;
-            if (playerState === 'duck') {
-                y = H - DUCK_HEIGHT;
-            } else {
-                y = playerY;
-            }
-            return { x: PLAYER_X, y: y, w: PLAYER_WIDTH, h: h };
+    const GRAVITY = 1.0 * FPS_BASE * FPS_BASE * V_SCALE;
+    const JUMP_FORCE = -15 * FPS_BASE * V_SCALE;
+
+    let playerState = 'run';
+    let playerY = PLAY_H - PLAYER_HEIGHT;
+    let jumpVelocity = 0;
+
+    function getPlayerRect() {
+        let h = (playerState === 'duck') ? DUCK_HEIGHT : PLAYER_HEIGHT;
+        let y;
+        if (playerState === 'duck') {
+            y = PLAY_H - DUCK_HEIGHT;
+        } else {
+            y = playerY;
         }
+        return { x: PLAYER_X, y: y, w: PLAYER_WIDTH, h: h };
+    }
 
-        // ---------- 障碍物 ----------
-        let obstacles = [];
-        const OBSTACLE_WIDTH = 32;
-        const OBSTACLE_HEIGHT = 70;
+    // ---------- 障碍物 ----------
+    let obstacles = [];
+    const OBSTACLE_WIDTH = 32 * H_SCALE;
+    const OBSTACLE_HEIGHT = 70 * V_SCALE;
 
-        const TOP_BOTTOM_MIN = 260;
-        const TOP_BOTTOM_MAX = 284;
+    const TOP_BOTTOM_MIN = 260 * V_SCALE;
+    const TOP_BOTTOM_MAX = 284 * V_SCALE;
 
-        let score = 0;
-        let highScore = 0;
-        let gameOver = false;
+    let score = 0;
+    let highScore = 0;
+    let gameOver = false;
 
-        // 速度转换为像素/秒
-        // baseSpeed = 4.2 像素/帧 → 4.2 * 60 = 252 像素/秒
-        // BOOST_SPEED = 8.0 像素/帧 → 8.0 * 60 = 480 像素/秒
-        const BASE_SPEED = 4.2 * FPS_BASE;
-        const BOOST_SPEED = 8.0 * FPS_BASE;
-        let speed = BASE_SPEED;
+    const BASE_SPEED = 4.2 * FPS_BASE * H_SCALE;
+    const BOOST_SPEED = 8.0 * FPS_BASE * H_SCALE;
+    let speed = BASE_SPEED;
 
-        let bgOffset = 0;
-        const BG_SPEED_FACTOR = 0.9;
+    let bgOffset = 0;
+    const BG_SPEED_FACTOR = 0.9;
 
-        // ---------- 累计游戏时间 ----------
-        let totalPlayTime = 0;
-        let sessionStartTime = 0;
-        let isPlaying = false;
+    let totalPlayTime = 0;
+    let sessionStartTime = 0;
+    let isPlaying = false;
 
-        let keys = {
-            ArrowUp: false,
-            ArrowDown: false,
-            Space: false
-        };
+    let keys = { ArrowUp: false, ArrowDown: false, Space: false };
 
-        // ---------- 输入缓冲（转换为秒） ----------
-        // 原来 BUFFER_DURATION = 12 帧 → 12 / 60 = 0.2 秒
-        let jumpBufferTimer = 0;
-        let duckBufferTimer = 0;
-        const BUFFER_DURATION = 12 / FPS_BASE;   // 0.2 秒
+    let jumpBufferTimer = 0;
+    let duckBufferTimer = 0;
+    const BUFFER_DURATION = 12 / FPS_BASE;
 
-        // ---------- 按键锁定 ----------
-        let keyboardUpLocked = false;
-        let keyboardDownLocked = false;
+    let keyboardUpLocked = false;
+    let keyboardDownLocked = false;
 
-        // ---------- 手柄状态 ----------
-        let gamepadConnected = false;
-        let gamepadIndex = -1;
-        let gamepadRB = false;
-        let prevGamepadButtons = {
-            DPadUp: false,
-            DPadDown: false,
-            RB: false,
-            Start: false
-        };
-        let gamepadUpLocked = false;
-        let gamepadDownLocked = false;
+    let gamepadConnected = false;
+    let gamepadIndex = -1;
+    let gamepadRB = false;
+    let prevGamepadButtons = { DPadUp: false, DPadDown: false, RB: false, Start: false };
+    let gamepadUpLocked = false;
+    let gamepadDownLocked = false;
+    let prevEscPressed = false;
+    let escPressed = false;
 
-        function loadHighScore() {
-            try {
-                const saved = localStorage.getItem('parkourHighScore');
-                if (saved) {
-                    highScore = parseInt(saved, 10) || 0;
-                }
-            } catch (e) {
-                highScore = 0;
-            }
-            highScoreSpan.innerText = highScore;
+    // ---------- 触屏 ----------
+    // 屏幕四分：左上=跳，左下=蹲，右上/右下=加速
+    const touchStates = new Map();
+    let touchDuck = false;
+    let touchBoost = false;
+
+    function touchActionFromPoint(clientX, clientY) {
+        const rect = canvas.getBoundingClientRect();
+        if (rect.width <= 0 || rect.height <= 0) return null;
+        const lx = (clientX - rect.left) * (W / rect.width);
+        const ly = (clientY - rect.top) * (H / rect.height);
+        if (lx < 0 || lx >= W || ly < 0 || ly >= H) return null;
+        const left = lx < W / 2;
+        const top = ly < H / 2;
+        if (left && top) return 'jump';
+        if (left && !top) return 'duck';
+        return 'boost';
+    }
+
+    function refreshTouchFlags() {
+        let duck = false, boost = false;
+        for (const state of touchStates.values()) {
+            if (state.action === 'duck') duck = true;
+            else if (state.action === 'boost') boost = true;
         }
+        if (touchDuck && !duck) releaseDuck();
+        touchDuck = duck;
+        touchBoost = boost;
+    }
 
-        function saveHighScore() {
-            try {
-                localStorage.setItem('parkourHighScore', highScore);
-            } catch (e) {}
+    // ---------- 存储 ----------
+    function loadHighScore() {
+        try {
+            const saved = localStorage.getItem('parkourHighScore');
+            if (saved) highScore = parseInt(saved, 10) || 0;
+        } catch (e) { highScore = 0; }
+    }
+    function saveHighScore() {
+        try { localStorage.setItem('parkourHighScore', highScore); } catch (e) {}
+    }
+    function updateHighScore() {
+        if (score > highScore) { highScore = score; saveHighScore(); hudDirty = true; }
+    }
+    function loadTotalTime() {
+        try {
+            const saved = localStorage.getItem('parkourTotalTime');
+            if (saved) totalPlayTime = parseFloat(saved) || 0;
+        } catch (e) { totalPlayTime = 0; }
+    }
+    function saveTotalTime() {
+        try { localStorage.setItem('parkourTotalTime', totalPlayTime.toFixed(1)); } catch (e) {}
+    }
+    function getFormattedTime() {
+        return String(Math.floor(totalPlayTime / 60));
+    }
+
+    // ---------- 动作 ----------
+    function tryJump() {
+        if (gameOver) return;
+        if (playerState === 'run') {
+            playerState = 'jump';
+            jumpVelocity = JUMP_FORCE;
+            jumpBufferTimer = 0;
+        } else {
+            jumpBufferTimer = BUFFER_DURATION;
         }
+    }
 
-        function updateHighScore() {
-            if (score > highScore) {
-                highScore = score;
-                highScoreSpan.innerText = highScore;
-                saveHighScore();
-            }
-        }
-
-        function loadTotalTime() {
-            try {
-                const saved = localStorage.getItem('parkourTotalTime');
-                if (saved) {
-                    totalPlayTime = parseFloat(saved) || 0;
-                }
-            } catch (e) {
-                totalPlayTime = 0;
-            }
-            updateTimeDisplay();
-        }
-
-        function saveTotalTime() {
-            try {
-                localStorage.setItem('parkourTotalTime', totalPlayTime.toFixed(1));
-            } catch (e) {}
-        }
-
-        function updateTimeDisplay() {
-            const minutes = totalPlayTime / 60;
-            timeSpan.innerText = minutes.toFixed(1);
-        }
-
-        function updateHints() {
-            if (gamepadConnected) {
-                kUp.innerText = '↑';
-                kDown.innerText = '↓';
-                kBoost.innerText = 'RB';
-                kBoost.classList.add('rb');
-                kRestart.innerText = 'ST';
-            } else {
-                kUp.innerText = '↑';
-                kDown.innerText = '↓';
-                kBoost.innerText = '空格';
-                kBoost.classList.remove('rb');
-                kRestart.innerText = 'R';
-            }
-        }
-
-        function tryJump() {
-            if (gameOver) return;
-            if (playerState === 'run') {
-                playerState = 'jump';
-                jumpVelocity = JUMP_FORCE;
-                jumpBufferTimer = 0;
-            } else {
-                jumpBufferTimer = BUFFER_DURATION;
-            }
-        }
-
-        function tryDuck() {
-            if (gameOver) return;
-            if (playerState === 'run') {
-                playerState = 'duck';
-                duckBufferTimer = 0;
-            } else {
-                duckBufferTimer = BUFFER_DURATION;
-            }
-        }
-
-        function releaseDuck() {
-            if (gameOver) return;
-            if (playerState === 'duck') {
-                playerState = 'run';
-            }
+    function tryDuck() {
+        if (gameOver) return;
+        if (playerState === 'run') {
+            playerState = 'duck';
             duckBufferTimer = 0;
+        } else {
+            duckBufferTimer = BUFFER_DURATION;
+        }
+    }
+
+    function releaseDuck() {
+        if (gameOver) return;
+        if (playerState === 'duck') playerState = 'run';
+        duckBufferTimer = 0;
+    }
+
+    // ---------- 输入 ----------
+    window.addEventListener('keydown', (e) => {
+        const key = e.key;
+        if (key === 'ArrowUp' || key === 'ArrowDown' || key === ' ') e.preventDefault();
+        if (key === 'ArrowUp') {
+            keys.ArrowUp = true;
+            if (!keyboardUpLocked) { keyboardUpLocked = true; tryJump(); }
+        } else if (key === 'ArrowDown') {
+            keys.ArrowDown = true;
+            if (!keyboardDownLocked) { keyboardDownLocked = true; tryDuck(); }
+        } else if (key === ' ') {
+            keys.Space = true;
+        } else if (key === 'Enter') {
+            e.preventDefault();
+            restart();
+        } else if (key === 'Escape') {
+            e.preventDefault(); escPressed = true;
+        }
+    });
+
+    window.addEventListener('keyup', (e) => {
+        const key = e.key;
+        if (key === 'ArrowUp') { keys.ArrowUp = false; keyboardUpLocked = false; }
+        else if (key === 'ArrowDown') { keys.ArrowDown = false; keyboardDownLocked = false; releaseDuck(); }
+        else if (key === ' ') keys.Space = false;
+        else if (key === 'Escape') { e.preventDefault(); escPressed = false; }
+        if (key === 'ArrowUp' || key === 'ArrowDown' || key === ' ') e.preventDefault();
+    });
+
+    canvas.addEventListener('click', () => {
+        if (gameOver) restart();
+    });
+
+    function onTouchStart(e) {
+        let consumed = false;
+        for (let i = 0; i < e.changedTouches.length; i++) {
+            const t = e.changedTouches[i];
+            const action = touchActionFromPoint(t.clientX, t.clientY);
+            if (!action) continue;
+            consumed = true;
+            touchStates.set(t.identifier, { action });
+            if (action === 'jump') tryJump();
+            else if (action === 'duck') tryDuck();
+        }
+        if (consumed) {
+            e.preventDefault();
+            refreshTouchFlags();
+            if (gameOver) restart();
+        }
+    }
+
+    function onTouchMove(e) {
+        let changed = false;
+        for (let i = 0; i < e.changedTouches.length; i++) {
+            const t = e.changedTouches[i];
+            if (!touchStates.has(t.identifier)) continue;
+            const action = touchActionFromPoint(t.clientX, t.clientY);
+            if (!action) continue;
+            const prev = touchStates.get(t.identifier);
+            if (prev.action !== action) {
+                const wasDuck = prev.action === 'duck';
+                prev.action = action;
+                changed = true;
+                if (action === 'jump') tryJump();
+                else if (action === 'duck' && !wasDuck) tryDuck();
+            }
+        }
+        if (changed) {
+            e.preventDefault();
+            refreshTouchFlags();
+        }
+    }
+
+    function onTouchEnd(e) {
+        let changed = false;
+        for (let i = 0; i < e.changedTouches.length; i++) {
+            const t = e.changedTouches[i];
+            if (touchStates.has(t.identifier)) {
+                touchStates.delete(t.identifier);
+                changed = true;
+            }
+        }
+        if (changed) {
+            e.preventDefault();
+            refreshTouchFlags();
+        }
+    }
+
+    canvas.addEventListener('touchstart', onTouchStart, { passive: false });
+    canvas.addEventListener('touchmove', onTouchMove, { passive: false });
+    canvas.addEventListener('touchend', onTouchEnd, { passive: false });
+    canvas.addEventListener('touchcancel', onTouchEnd, { passive: false });
+
+    window.addEventListener('blur', () => {
+        touchStates.clear();
+        touchDuck = false;
+        touchBoost = false;
+    });
+
+    // ---------- 全屏控制 ----------
+    const fullscreenApi = {
+        request: () => {
+            const el = document.documentElement;
+            if (el.requestFullscreen) return el.requestFullscreen();
+            if (el.webkitRequestFullscreen) return el.webkitRequestFullscreen();
+            if (el.msRequestFullscreen) return el.msRequestFullscreen();
+        },
+        exit: () => {
+            if (document.exitFullscreen) return document.exitFullscreen();
+            if (document.webkitExitFullscreen) return document.webkitExitFullscreen();
+            if (document.msExitFullscreen) return document.msExitFullscreen();
+        },
+        isFullscreen: () => !!(document.fullscreenElement || document.webkitFullscreenElement || document.msFullscreenElement)
+    };
+
+    function updateFullscreenButton() {
+        const fs = fullscreenApi.isFullscreen();
+        if (fs) {
+            fsIconExpand.style.display = 'none';
+            fsIconCompress.style.display = 'block';
+            fullscreenBtn.setAttribute('aria-label', '退出全屏');
+            fullscreenBtn.setAttribute('title', '退出全屏');
+        } else {
+            fsIconExpand.style.display = 'block';
+            fsIconCompress.style.display = 'none';
+            fullscreenBtn.setAttribute('aria-label', '全屏');
+            fullscreenBtn.setAttribute('title', '全屏');
+        }
+    }
+
+    function toggleFullscreen() {
+        if (fullscreenApi.isFullscreen()) fullscreenApi.exit();
+        else fullscreenApi.request();
+    }
+
+    fullscreenBtn.addEventListener('click', (e) => {
+        e.preventDefault(); e.stopPropagation();
+        toggleFullscreen();
+    });
+    fullscreenBtn.addEventListener('touchstart', (e) => e.stopPropagation(), { passive: true });
+    fullscreenBtn.addEventListener('touchend', (e) => e.stopPropagation(), { passive: true });
+
+    function onFullscreenChange() {
+        const fs = fullscreenApi.isFullscreen();
+        container.classList.toggle('is-fullscreen', fs);
+        updateFullscreenButton();
+        setTimeout(scheduleResize, 60);
+        setTimeout(scheduleResize, 200);
+        setTimeout(scheduleResize, 500);
+    }
+    document.addEventListener('fullscreenchange', onFullscreenChange);
+    document.addEventListener('webkitfullscreenchange', onFullscreenChange);
+    document.addEventListener('msfullscreenchange', onFullscreenChange);
+
+    // ---------- 画布适配 ----------
+    let cachedPadX = 0;
+
+    function refreshCachedPad() {
+        const cs = getComputedStyle(container);
+        const containerPadX = (parseFloat(cs.paddingLeft) || 0) + (parseFloat(cs.paddingRight) || 0);
+        const bs = getComputedStyle(document.body);
+        const bodyPadX = (parseFloat(bs.paddingLeft) || 0) + (parseFloat(bs.paddingRight) || 0);
+        cachedPadX = containerPadX + bodyPadX;
+    }
+
+    function applyCanvasTransform() {
+        ctx.setTransform(canvas.width / W, 0, 0, canvas.height / H, 0, 0);
+    }
+
+    function resizeCanvas() {
+        const dpr = window.devicePixelRatio || 1;
+        let availWidth, availHeight;
+
+        if (fullscreenApi.isFullscreen()) {
+            availWidth = window.innerWidth;
+            availHeight = window.innerHeight;
+        } else {
+            availWidth = window.innerWidth - cachedPadX;
+            availHeight = window.innerHeight - cachedPadX;
         }
 
-        window.addEventListener('keydown', (e) => {
-            const key = e.key;
-            if (key === 'ArrowUp' || key === 'ArrowDown' || key === ' ') {
-                e.preventDefault();
-            }
+        const availWidthFromHeight = availHeight * (W / H);
+        let cssW = Math.min(availWidth, availWidthFromHeight);
+        if (!fullscreenApi.isFullscreen()) cssW = Math.min(cssW, 1280);
+        if (!isFinite(cssW) || cssW < 100) cssW = Math.max(100, Math.min(availWidth, 1280));
+        const cssH = cssW * (H / W);
 
-            if (key === 'ArrowUp') {
-                keys.ArrowUp = true;
-                if (!keyboardUpLocked) {
-                    keyboardUpLocked = true;
-                    tryJump();
-                }
-            } else if (key === 'ArrowDown') {
-                keys.ArrowDown = true;
-                if (!keyboardDownLocked) {
-                    keyboardDownLocked = true;
-                    tryDuck();
-                }
-            } else if (key === ' ') {
-                keys.Space = true;
-            } else if (key === 'r' || key === 'R') {
-                e.preventDefault();
-                restart();
-            }
-        });
+        canvas.style.width = cssW + 'px';
+        canvas.style.height = cssH + 'px';
+        canvas.width  = Math.round(cssW * dpr);
+        canvas.height = Math.round(cssH * dpr);
+        applyCanvasTransform();
+    }
 
-        window.addEventListener('keyup', (e) => {
-            const key = e.key;
-            if (key === 'ArrowUp') {
-                keys.ArrowUp = false;
-                keyboardUpLocked = false;
-            } else if (key === 'ArrowDown') {
-                keys.ArrowDown = false;
-                keyboardDownLocked = false;
-                releaseDuck();
-            } else if (key === ' ') {
-                keys.Space = false;
-            }
-            if (key === 'ArrowUp' || key === 'ArrowDown' || key === ' ') {
-                e.preventDefault();
-            }
-        });
+    let resizeScheduled = false;
+    function scheduleResize() {
+        if (resizeScheduled) return;
+        resizeScheduled = true;
+        requestAnimationFrame(() => { resizeScheduled = false; resizeCanvas(); });
+    }
+    window.addEventListener('resize', scheduleResize);
+    window.addEventListener('orientationchange', () => { setTimeout(scheduleResize, 120); setTimeout(scheduleResize, 350); });
+    if (window.visualViewport) window.visualViewport.addEventListener('resize', scheduleResize);
 
-        window.addEventListener('keydown', (e) => {
-            if (e.key === ' ' || e.key === 'ArrowUp' || e.key === 'ArrowDown') {
-                e.preventDefault();
-            }
-        }, false);
+    // ---------- 渐变缓存 ----------
+    let skyGrad = null;
+    let hudBgGrad = null;
 
-        function randomRange(min, max) {
-            return Math.random() * (max - min) + min;
+    function rebuildGradients() {
+        skyGrad = ctx.createLinearGradient(0, 0, 0, PLAY_H);
+        skyGrad.addColorStop(0, '#b6e2f0');
+        skyGrad.addColorStop(0.8, '#d4eef9');
+
+        hudBgGrad = ctx.createLinearGradient(0, PLAY_H, 0, H);
+        hudBgGrad.addColorStop(0, 'rgba(13, 27, 42, 0.96)');
+        hudBgGrad.addColorStop(1, 'rgba(6, 15, 26, 0.98)');
+    }
+
+    // ---------- 游戏逻辑 ----------
+    function randomRange(min, max) { return Math.random() * (max - min) + min; }
+
+    function spawnObstacle() {
+        const type = Math.random() < 0.5 ? 'top' : 'bottom';
+        let h, y;
+
+        if (type === 'top') {
+            const bottomPos = randomRange(TOP_BOTTOM_MIN, TOP_BOTTOM_MAX);
+            y = 0;
+            h = bottomPos - y;
+            if (h < 20 * V_SCALE) h = 20 * V_SCALE;
+        } else {
+            h = OBSTACLE_HEIGHT;
+            y = PLAY_H - h;
         }
 
-        function spawnObstacle() {
-            const type = Math.random() < 0.5 ? 'top' : 'bottom';
-            let h, y;
+        obstacles.push({ x: W, y: y, w: OBSTACLE_WIDTH, h: h, type: type, passed: false });
+    }
 
-            if (type === 'top') {
-                const bottomPos = randomRange(TOP_BOTTOM_MIN, TOP_BOTTOM_MAX);
-                y = 0;
-                h = bottomPos - y;
-                if (h < 20) h = 20;
-            } else {
-                h = OBSTACLE_HEIGHT;
-                y = H - h;
-            }
+    let spawnTimer = 45 / FPS_BASE;
 
-            obstacles.push({
-                x: W,
-                y: y,
-                w: OBSTACLE_WIDTH,
-                h: h,
-                type: type,
-                passed: false
+    // ---------- 云 ----------
+    const CLOUD_COUNT = 8;
+    let clouds = [];
+
+    function createCloud(x) {
+        const puffCount = Math.floor(randomRange(4, 7));
+        const puffs = [];
+        const baseW = randomRange(70, 130) * H_SCALE;
+        const baseH = randomRange(24, 40) * V_SCALE;
+        for (let j = 0; j < puffCount; j++) {
+            const ry = randomRange(baseH * 0.45, baseH * 0.75);
+            const rx = ry * randomRange(1.5, 2.2);
+            puffs.push({
+                offsetX: randomRange(-baseW * 0.5, baseW * 0.5),
+                offsetY: randomRange(-baseH * 0.3, baseH * 0.3),
+                rx: rx, ry: ry, rotation: randomRange(-0.15, 0.15)
             });
         }
+        return { x, y: randomRange(20, 150) * V_SCALE, w: baseW, h: baseH, speed: randomRange(8, 22) * H_SCALE, puffs, alpha: randomRange(0.5, 0.85) };
+    }
 
-        function resetGame() {
-            gameOver = false;
-            score = 0;
-            scoreSpan.innerText = '0';
-            obstacles = [];
-            playerState = 'run';
-            playerY = H - PLAYER_HEIGHT;
-            jumpVelocity = 0;
-            bgOffset = 0;
-            speed = BASE_SPEED;
-            // spawnTimer 转换为秒：45 帧 → 45/60 = 0.75 秒
-            spawnTimer = 45 / FPS_BASE;
-            jumpBufferTimer = 0;
-            duckBufferTimer = 0;
-            keyboardUpLocked = false;
-            keyboardDownLocked = false;
-            gamepadUpLocked = false;
-            gamepadDownLocked = false;
-            sessionStartTime = performance.now();
-            isPlaying = true;
+    function generateClouds() {
+        clouds = [];
+        for (let i = 0; i < CLOUD_COUNT; i++) clouds.push(createCloud(randomRange(0, W)));
+    }
+
+    function updateClouds(dt) {
+        for (let i = clouds.length - 1; i >= 0; i--) {
+            const c = clouds[i];
+            c.x -= c.speed * dt;
+            if (c.x + c.w < -20) { clouds.splice(i, 1); clouds.push(createCloud(W + randomRange(40, 200))); }
         }
+    }
 
-        let spawnTimer = 45 / FPS_BASE;   // 秒
-
-        function pollGamepad() {
-            const gamepads = navigator.getGamepads ? navigator.getGamepads() : [];
-            let gp = null;
-
-            for (let i = 0; i < gamepads.length; i++) {
-                if (gamepads[i] && gamepads[i].connected) {
-                    gp = gamepads[i];
-                    gamepadIndex = i;
-                    break;
-                }
-            }
-
-            if (gp && !gamepadConnected) {
-                gamepadConnected = true;
-                gamepadIcon.classList.add('connected');
-                updateHints();
-            } else if (!gp && gamepadConnected) {
-                gamepadConnected = false;
-                gamepadIcon.classList.remove('connected');
-                updateHints();
-                prevGamepadButtons.DPadUp = false;
-                prevGamepadButtons.DPadDown = false;
-                prevGamepadButtons.RB = false;
-                prevGamepadButtons.Start = false;
-                gamepadUpLocked = false;
-                gamepadDownLocked = false;
-                gamepadRB = false;
-                if (playerState === 'duck') {
-                    playerState = 'run';
-                }
-            }
-
-            if (!gp) {
-                gamepadRB = false;
-                return;
-            }
-
-            const buttons = gp.buttons;
-
-            const dpadUpPressed = buttons[12] && (buttons[12].pressed || buttons[12].value > 0.5);
-            if (dpadUpPressed && !prevGamepadButtons.DPadUp) {
-                if (!gamepadUpLocked) {
-                    gamepadUpLocked = true;
-                    tryJump();
-                }
-            } else if (!dpadUpPressed && prevGamepadButtons.DPadUp) {
-                gamepadUpLocked = false;
-            }
-            prevGamepadButtons.DPadUp = dpadUpPressed;
-
-            const dpadDownPressed = buttons[13] && (buttons[13].pressed || buttons[13].value > 0.5);
-            if (dpadDownPressed && !prevGamepadButtons.DPadDown) {
-                if (!gamepadDownLocked) {
-                    gamepadDownLocked = true;
-                    tryDuck();
-                }
-            } else if (!dpadDownPressed && prevGamepadButtons.DPadDown) {
-                gamepadDownLocked = false;
-                releaseDuck();
-            }
-            prevGamepadButtons.DPadDown = dpadDownPressed;
-
-            const rbPressed = buttons[5] && (buttons[5].pressed || buttons[5].value > 0.5);
-            gamepadRB = rbPressed;
-            prevGamepadButtons.RB = rbPressed;
-
-            const startPressed = buttons[9] && (buttons[9].pressed || buttons[9].value > 0.5);
-            if (startPressed && !prevGamepadButtons.Start) {
-                if (gameOver) {
-                    restart();
-                }
-            }
-            prevGamepadButtons.Start = startPressed;
-        }
-
-        // ---------- 更新逻辑（基于时间差） ----------
-        function update(dt) {
-            if (gameOver) return;
-
-            const isBoosting = keys.Space || gamepadRB;
-            speed = isBoosting ? BOOST_SPEED : BASE_SPEED;
-
-            // 缓冲处理（使用秒）
-            if (jumpBufferTimer > 0 && playerState === 'run') {
-                playerState = 'jump';
-                jumpVelocity = JUMP_FORCE;
-                jumpBufferTimer = 0;
-            }
-            if (jumpBufferTimer > 0) jumpBufferTimer -= dt;
-
-            if (duckBufferTimer > 0 && playerState === 'run') {
-                playerState = 'duck';
-                duckBufferTimer = 0;
-            }
-            if (duckBufferTimer > 0) duckBufferTimer -= dt;
-
-            // 玩家物理（使用秒）
-            if (playerState === 'jump') {
-                playerY += jumpVelocity * dt;
-                jumpVelocity += GRAVITY * dt;
-                const groundY = H - PLAYER_HEIGHT;
-                if (playerY >= groundY) {
-                    playerY = groundY;
-                    playerState = 'run';
-                    jumpVelocity = 0;
-                }
-            } else if (playerState === 'duck') {
-                // 蹲下不动
-            } else {
-                playerY = H - PLAYER_HEIGHT;
-            }
-
-            // 移动障碍物（像素/秒 * 秒）
-            for (let i = obstacles.length - 1; i >= 0; i--) {
-                const obs = obstacles[i];
-                obs.x -= speed * dt;
-
-                if (!obs.passed && obs.x + obs.w < 0) {
-                    obs.passed = true;
-                    score += 10;
-                    scoreSpan.innerText = score;
-                    updateHighScore();
-                }
-                if (obs.x + obs.w < 0) {
-                    obstacles.splice(i, 1);
-                }
-            }
-
-            // 背景滚动
-            bgOffset = (bgOffset + speed * BG_SPEED_FACTOR * dt) % 60;
-
-            // 障碍物生成（秒）
-            spawnTimer -= dt;
-            if (spawnTimer <= 0) {
-                if (obstacles.length < 4) {
-                    spawnObstacle();
-                }
-                // 间隔转换为秒：随机 38~68 帧 → 除以 60
-                const baseReset = randomRange(38, 68) / FPS_BASE;
-                let resetFactor = BASE_SPEED / speed;
-                resetFactor = Math.max(0.45, Math.min(1.2, resetFactor));
-                const newReset = baseReset * resetFactor;
-                spawnTimer = Math.max(18 / FPS_BASE, newReset);
-            }
-
-            // 碰撞检测
-            const rawPlayer = getPlayerRect();
-            const playerRect = {
-                x: rawPlayer.x + 5,
-                y: rawPlayer.y + 5,
-                w: rawPlayer.w - 10,
-                h: rawPlayer.h - 10
-            };
-            if (playerState === 'jump') {
-                playerRect.y = rawPlayer.y + 9;
-                playerRect.h = rawPlayer.h - 18;
-            }
-
-            for (let obs of obstacles) {
-                let obsRect;
-                if (obs.type === 'top') {
-                    obsRect = {
-                        x: obs.x + 3,
-                        y: obs.y + 3,
-                        w: obs.w - 6,
-                        h: obs.h - 6
-                    };
-                } else {
-                    obsRect = {
-                        x: obs.x + 6,
-                        y: obs.y + 5,
-                        w: obs.w - 12,
-                        h: obs.h - 10
-                    };
-                }
-
-                if (playerRect.x < obsRect.x + obsRect.w &&
-                    playerRect.x + playerRect.w > obsRect.x &&
-                    playerRect.y < obsRect.y + obsRect.h &&
-                    playerRect.y + playerRect.h > obsRect.y) {
-                    gameOver = true;
-                    updateHighScore();
-                    saveTotalTime();
-                    isPlaying = false;
-                    break;
-                }
-            }
-        }
-
-        // ---------- 绘制 ----------
-        function draw() {
-            ctx.clearRect(0, 0, W, H);
-
-            const skyGrad = ctx.createLinearGradient(0, 0, 0, H);
-            skyGrad.addColorStop(0, '#b6e2f0');
-            skyGrad.addColorStop(0.8, '#d4eef9');
-            ctx.fillStyle = skyGrad;
-            ctx.fillRect(0, 0, W, H);
-
-            ctx.fillStyle = '#9ac7d9';
-            ctx.globalAlpha = 0.5;
-            for (let i = 0; i < 12; i++) {
-                let x = (i * 80 - bgOffset * 1.2) % (W + 100) - 50;
+    function drawClouds() {
+        ctx.fillStyle = '#ffffff';
+        for (let i = 0; i < clouds.length; i++) {
+            const c = clouds[i];
+            ctx.globalAlpha = c.alpha;
+            const puffs = c.puffs;
+            for (let j = 0; j < puffs.length; j++) {
+                const p = puffs[j];
+                ctx.save();
+                ctx.translate(c.x + p.offsetX, c.y + p.offsetY);
+                ctx.rotate(p.rotation);
                 ctx.beginPath();
-                ctx.arc(x, 60, 40, 0, Math.PI * 2);
+                ctx.ellipse(0, 0, p.rx, p.ry, 0, 0, Math.PI * 2);
                 ctx.fill();
+                ctx.restore();
             }
-            ctx.globalAlpha = 1.0;
-
-            ctx.fillStyle = '#7a9e7e';
-            ctx.fillRect(0, H - 40, W, 40);
-            ctx.fillStyle = '#5f7e5f';
-            for (let i = 0; i < 20; i++) {
-                let x = (i * 45 - bgOffset * 2) % (W + 80) - 40;
-                ctx.fillRect(x, H - 28, 20, 6);
-            }
-            ctx.fillStyle = '#4f6b4f';
-            ctx.fillRect(0, H - 12, W, 6);
-
-            for (let obs of obstacles) {
-                if (obs.type === 'top') {
-                    ctx.fillStyle = '#b13e3e';
-                    ctx.shadowColor = '#6b1f1f';
-                } else {
-                    ctx.fillStyle = '#2e6b8f';
-                    ctx.shadowColor = '#153b52';
-                }
-                ctx.shadowBlur = 8;
-                ctx.shadowOffsetY = 3;
-                const r = 6;
-                ctx.beginPath();
-                ctx.moveTo(obs.x + r, obs.y);
-                ctx.lineTo(obs.x + obs.w - r, obs.y);
-                ctx.quadraticCurveTo(obs.x + obs.w, obs.y, obs.x + obs.w, obs.y + r);
-                ctx.lineTo(obs.x + obs.w, obs.y + obs.h - r);
-                ctx.quadraticCurveTo(obs.x + obs.w, obs.y + obs.h, obs.x + obs.w - r, obs.y + obs.h);
-                ctx.lineTo(obs.x + r, obs.y + obs.h);
-                ctx.quadraticCurveTo(obs.x, obs.y + obs.h, obs.x, obs.y + obs.h - r);
-                ctx.lineTo(obs.x, obs.y + r);
-                ctx.quadraticCurveTo(obs.x, obs.y, obs.x + r, obs.y);
-                ctx.closePath();
-                ctx.fill();
-                ctx.shadowBlur = 0;
-                ctx.shadowOffsetY = 0;
-                ctx.strokeStyle = '#fff3e0';
-                ctx.lineWidth = 2;
-                ctx.stroke();
-            }
-
-            const playerRect = getPlayerRect();
-            if (playerState === 'jump') {
-                ctx.fillStyle = '#f5c542';
-                ctx.shadowColor = '#b88a1a';
-            } else if (playerState === 'duck') {
-                ctx.fillStyle = '#44b78b';
-                ctx.shadowColor = '#1d6b4a';
-            } else {
-                ctx.fillStyle = '#f09b4a';
-                ctx.shadowColor = '#9e5c1a';
-            }
-            ctx.shadowBlur = 12;
-            ctx.shadowOffsetY = 4;
-            const px = playerRect.x, py = playerRect.y, pw = playerRect.w, ph = playerRect.h;
-            const pr = 10;
-            ctx.beginPath();
-            ctx.moveTo(px + pr, py);
-            ctx.lineTo(px + pw - pr, py);
-            ctx.quadraticCurveTo(px + pw, py, px + pw, py + pr);
-            ctx.lineTo(px + pw, py + ph - pr);
-            ctx.quadraticCurveTo(px + pw, py + ph, px + pw - pr, py + ph);
-            ctx.lineTo(px + pr, py + ph);
-            ctx.quadraticCurveTo(px, py + ph, px, py + ph - pr);
-            ctx.lineTo(px, py + pr);
-            ctx.quadraticCurveTo(px, py, px + pr, py);
-            ctx.closePath();
-            ctx.fill();
-
-            ctx.shadowBlur = 0;
-            ctx.shadowOffsetY = 0;
-            ctx.fillStyle = '#ffffff';
-            ctx.beginPath();
-            ctx.arc(px + pw - 14, py + 16, 5, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.fillStyle = '#1e1e1e';
-            ctx.beginPath();
-            ctx.arc(px + pw - 16, py + 14, 2.5, 0, Math.PI * 2);
-            ctx.fill();
-
-            if (playerState === 'jump') {
-                ctx.fillStyle = '#ffffff80';
-                ctx.beginPath();
-                ctx.arc(px + pw/2, py + ph - 8, 8, 0, Math.PI * 2);
-                ctx.fill();
-            }
-
-            if (gameOver) {
-                ctx.fillStyle = '#000000aa';
-                ctx.fillRect(0, 0, W, H);
-                ctx.font = 'bold 48px "Courier New", monospace';
-                ctx.fillStyle = '#f3d9b1';
-                ctx.shadowColor = '#2e1e0e';
-                ctx.shadowBlur = 14;
-                ctx.shadowOffsetY = 6;
-                ctx.textAlign = 'center';
-                ctx.fillText('GAME OVER', W/2, H/2 - 20);
-                ctx.font = '28px "Courier New", monospace';
-                ctx.fillText('点击 / R / Start 重新开始', W/2, H/2 + 60);
-                ctx.shadowBlur = 0;
-                ctx.shadowOffsetY = 0;
-            }
-
-            ctx.shadowBlur = 0;
-            ctx.shadowOffsetY = 0;
-            ctx.textAlign = 'left';
         }
+        ctx.globalAlpha = 1;
+    }
 
-        // ---------- 游戏主循环（基于时间差） ----------
-        let lastTime = 0;
-        function gameLoop(timestamp) {
-            if (!lastTime) lastTime = timestamp;
-            let dt = (timestamp - lastTime) / 1000;
-            lastTime = timestamp;
-            if (dt > 0.1) dt = 0.1;
-            if (dt < 0.001) dt = 0.001;
+    function resetGame() {
+        gameOver = false;
+        score = 0;
+        obstacles = [];
+        playerState = 'run';
+        playerY = PLAY_H - PLAYER_HEIGHT;
+        jumpVelocity = 0;
+        bgOffset = 0;
+        generateClouds();
+        speed = BASE_SPEED;
+        spawnTimer = 45 / FPS_BASE;
+        jumpBufferTimer = 0;
+        duckBufferTimer = 0;
+        keyboardUpLocked = false;
+        keyboardDownLocked = false;
+        gamepadUpLocked = false;
+        gamepadDownLocked = false;
+        touchStates.clear();
+        touchDuck = false;
+        touchBoost = false;
+        sessionStartTime = performance.now();
+        isPlaying = true;
+        hudDirty = true;
+        hudLastTime = 0;
+    }
 
-            pollGamepad();
-
-            if (!gameOver) {
-                if (isPlaying && sessionStartTime > 0) {
-                    totalPlayTime += dt;
-                    updateTimeDisplay();
-                }
-                update(dt);
-            } else {
-                if (isPlaying) {
-                    saveTotalTime();
-                    isPlaying = false;
-                }
-            }
-            draw();
-            requestAnimationFrame(gameLoop);
+    function pollGamepad() {
+        const gamepads = navigator.getGamepads ? navigator.getGamepads() : [];
+        let gp = null;
+        for (let i = 0; i < gamepads.length; i++) {
+            if (gamepads[i] && gamepads[i].connected) { gp = gamepads[i]; gamepadIndex = i; break; }
         }
-
-        function restart() {
-            if (isPlaying) {
-                saveTotalTime();
-            }
-            resetGame();
-        }
-
-        canvas.addEventListener('click', () => {
-            if (gameOver) {
-                restart();
-            }
-        });
-
-        window.addEventListener('blur', () => {
-            keys.ArrowUp = false;
-            keys.ArrowDown = false;
-            keys.Space = false;
-            keyboardUpLocked = false;
-            keyboardDownLocked = false;
-            if (playerState === 'duck') {
-                playerState = 'run';
-            }
-        });
-
-        window.addEventListener('gamepadconnected', (e) => {
-            gamepadConnected = true;
-            gamepadIndex = e.gamepad.index;
-            gamepadIcon.classList.add('connected');
-            updateHints();
-        });
-
-        window.addEventListener('gamepaddisconnected', (e) => {
+        if (gp && !gamepadConnected) gamepadConnected = true;
+        else if (!gp && gamepadConnected) {
             gamepadConnected = false;
-            gamepadIndex = -1;
-            gamepadIcon.classList.remove('connected');
-            updateHints();
             prevGamepadButtons.DPadUp = false;
             prevGamepadButtons.DPadDown = false;
             prevGamepadButtons.RB = false;
@@ -812,14 +625,591 @@
             gamepadUpLocked = false;
             gamepadDownLocked = false;
             gamepadRB = false;
-        });
+            if (playerState === 'duck') playerState = 'run';
+        }
+        if (!gp) { gamepadRB = false; return; }
 
-        loadHighScore();
-        loadTotalTime();
-        updateHints();
-        resetGame();
+        const buttons = gp.buttons;
+        const dpadUpPressed = buttons[12] && (buttons[12].pressed || buttons[12].value > 0.5);
+        if (dpadUpPressed && !prevGamepadButtons.DPadUp) {
+            if (!gamepadUpLocked) { gamepadUpLocked = true; tryJump(); }
+        } else if (!dpadUpPressed && prevGamepadButtons.DPadUp) {
+            gamepadUpLocked = false;
+        }
+        prevGamepadButtons.DPadUp = dpadUpPressed;
+
+        const dpadDownPressed = buttons[13] && (buttons[13].pressed || buttons[13].value > 0.5);
+        if (dpadDownPressed && !prevGamepadButtons.DPadDown) {
+            if (!gamepadDownLocked) { gamepadDownLocked = true; tryDuck(); }
+        } else if (!dpadDownPressed && prevGamepadButtons.DPadDown) {
+            gamepadDownLocked = false;
+            releaseDuck();
+        }
+        prevGamepadButtons.DPadDown = dpadDownPressed;
+
+        gamepadRB = !!(buttons[5] && (buttons[5].pressed || buttons[5].value > 0.5));
+        prevGamepadButtons.RB = gamepadRB;
+
+        const startPressed = !!(buttons[9] && (buttons[9].pressed || buttons[9].value > 0.5));
+        if (startPressed && !prevGamepadButtons.Start && gameOver) restart();
+        prevGamepadButtons.Start = startPressed;
+    }
+
+    function update(dt) {
+        if (gameOver) return;
+
+        const isBoosting = keys.Space || gamepadRB || touchBoost;
+        speed = isBoosting ? BOOST_SPEED : BASE_SPEED;
+
+        if (jumpBufferTimer > 0 && playerState === 'run') {
+            playerState = 'jump';
+            jumpVelocity = JUMP_FORCE;
+            jumpBufferTimer = 0;
+        }
+        if (jumpBufferTimer > 0) jumpBufferTimer -= dt;
+
+        if (duckBufferTimer > 0 && playerState === 'run') {
+            playerState = 'duck';
+            duckBufferTimer = 0;
+        }
+        if (duckBufferTimer > 0) duckBufferTimer -= dt;
+
+        if (playerState === 'jump') {
+            playerY += jumpVelocity * dt;
+            jumpVelocity += GRAVITY * dt;
+            const groundY = PLAY_H - PLAYER_HEIGHT;
+            if (playerY >= groundY) {
+                playerY = groundY;
+                playerState = 'run';
+                jumpVelocity = 0;
+            }
+        } else if (playerState === 'duck') {
+            // 蹲下不动
+        } else {
+            playerY = PLAY_H - PLAYER_HEIGHT;
+        }
+
+        for (let i = obstacles.length - 1; i >= 0; i--) {
+            const obs = obstacles[i];
+            obs.x -= speed * dt;
+
+            if (!obs.passed && obs.x + obs.w < 0) {
+                obs.passed = true;
+                score += 10;
+                updateHighScore();
+                hudDirty = true;
+            }
+            if (obs.x + obs.w < 0) obstacles.splice(i, 1);
+        }
+
+        bgOffset = (bgOffset + speed * BG_SPEED_FACTOR * dt) % 60;
+        updateClouds(dt);
+
+        spawnTimer -= dt;
+        if (spawnTimer <= 0) {
+            if (obstacles.length < 4) spawnObstacle();
+            const baseReset = randomRange(38, 68) / FPS_BASE;
+            let resetFactor = BASE_SPEED / speed;
+            resetFactor = Math.max(0.45, Math.min(1.2, resetFactor));
+            const newReset = baseReset * resetFactor;
+            spawnTimer = Math.max(18 / FPS_BASE, newReset);
+        }
+
+        const rawPlayer = getPlayerRect();
+        const playerRect = {
+            x: rawPlayer.x + 5 * H_SCALE,
+            y: rawPlayer.y + 5 * V_SCALE,
+            w: rawPlayer.w - 10 * H_SCALE,
+            h: rawPlayer.h - 10 * V_SCALE
+        };
+        if (playerState === 'jump') {
+            playerRect.y = rawPlayer.y + 9 * V_SCALE;
+            playerRect.h = rawPlayer.h - 18 * V_SCALE;
+        }
+
+        for (let obs of obstacles) {
+            let obsRect;
+            if (obs.type === 'top') {
+                obsRect = { x: obs.x + 3 * H_SCALE, y: obs.y + 3 * V_SCALE, w: obs.w - 6 * H_SCALE, h: obs.h - 6 * V_SCALE };
+            } else {
+                obsRect = { x: obs.x + 6 * H_SCALE, y: obs.y + 5 * V_SCALE, w: obs.w - 12 * H_SCALE, h: obs.h - 10 * V_SCALE };
+            }
+
+            if (playerRect.x < obsRect.x + obsRect.w &&
+                playerRect.x + playerRect.w > obsRect.x &&
+                playerRect.y < obsRect.y + obsRect.h &&
+                playerRect.y + playerRect.h > obsRect.y) {
+                gameOver = true;
+                updateHighScore();
+                saveTotalTime();
+                isPlaying = false;
+                break;
+            }
+        }
+    }
+
+    // ---------- HUD（缓存） ----------
+    let hudDirty = true;
+    let hudScoreStr = '', hudHsStr = '', hudTimeStr = '';
+    let hudScoreW = 0, hudHsW = 0, hudTimeW = 0;
+    let hudLastTime = -1;
+
+    const HUD_FONT = 'bold 18px "Courier New", monospace';
+
+    function roundRectPath(x, y, w, h, r) {
+        if (w < 2 * r) r = w / 2;
+        if (h < 2 * r) r = h / 2;
+        ctx.beginPath();
+        ctx.moveTo(x + r, y);
+        ctx.arcTo(x + w, y, x + w, y + h, r);
+        ctx.arcTo(x + w, y + h, x, y + h, r);
+        ctx.arcTo(x, y + h, x, y, r);
+        ctx.arcTo(x, y, x + w, y, r);
+        ctx.closePath();
+    }
+
+    function rebuildHudCache() {
+        hudScoreStr = 'Score: ' + score;
+        hudHsStr = 'High score: ' + highScore;
+        hudTimeStr = 'Time: ' + getFormattedTime() + ' min';
+
+        const savedFont = ctx.font;
+        ctx.font = HUD_FONT;
+        const pillPadX = 14;
+        hudScoreW = ctx.measureText(hudScoreStr).width + pillPadX * 2;
+        hudHsW = ctx.measureText(hudHsStr).width + pillPadX * 2;
+        hudTimeW = ctx.measureText(hudTimeStr).width + pillPadX * 2;
+        ctx.font = savedFont;
+        hudLastTime = Math.floor(totalPlayTime / 60);
+        hudDirty = false;
+    }
+
+    function drawPillWithText(x, y, w, h, bgColor, text, textColor) {
+        ctx.fillStyle = bgColor;
+        roundRectPath(x, y, w, h, h / 2);
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+        ctx.lineWidth = 1;
+        roundRectPath(x + 1, y + 1, w - 2, h - 2, (h - 2) / 2);
+        ctx.stroke();
+
+        ctx.fillStyle = textColor;
+        ctx.fillText(text, x + 14, y + h / 2 + 1);
+    }
+
+    function drawHud() {
+        const curTime = Math.floor(totalPlayTime / 60);
+        if (curTime !== hudLastTime) hudDirty = true;
+        if (hudDirty) rebuildHudCache();
+
+        ctx.fillStyle = hudBgGrad;
+        ctx.fillRect(0, PLAY_H, W, HUD_H);
+        ctx.strokeStyle = 'rgba(120, 170, 210, 0.35)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(0, PLAY_H + 0.5);
+        ctx.lineTo(W, PLAY_H + 0.5);
+        ctx.stroke();
+
+        const pillH = 36;
+        const pillBg = 'rgba(30, 47, 74, 0.85)';
+        const pillBgStrong = 'rgba(52, 78, 116, 0.9)';
+        const gap = 10;
+        const totalW = hudScoreW + hudHsW + hudTimeW + gap * 2;
+        let x = (W - totalW) / 2;
+        const y = PLAY_H + (HUD_H - pillH) / 2;
+
+        ctx.font = HUD_FONT;
+        ctx.textBaseline = 'middle';
+        ctx.textAlign = 'left';
+
+        drawPillWithText(x, y, hudScoreW, pillH, pillBg, hudScoreStr, '#dfeef8');
+        x += hudScoreW + gap;
+        drawPillWithText(x, y, hudHsW, pillH, pillBgStrong, hudHsStr, '#ffd966');
+        x += hudHsW + gap;
+        drawPillWithText(x, y, hudTimeW, pillH, pillBg, hudTimeStr, '#9bf6b0');
+    }
+
+    // ---------- 绘制 ----------
+    const GO_TITLE_FONT = 'bold 72px "Courier New", monospace';
+    const GO_SCORE_FONT = 'bold 30px "Courier New", monospace';
+    const GO_HINT_FONT = 'bold 22px "Courier New", monospace';
+
+    function drawHintKey(x, y, w, h) {
+        ctx.fillStyle = 'rgba(240, 243, 248, 0.92)';
+        roundRectPath(x, y, w, h, 5);
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(90, 111, 136, 0.9)';
+        ctx.lineWidth = 2;
+        roundRectPath(x, y, w, h, 5);
+        ctx.stroke();
+    }
+
+    function drawHintKeyWithLabel(x, y, w, h, label) {
+        drawHintKey(x, y, w, h);
+        ctx.fillStyle = '#0b1a2f';
+        ctx.font = GO_HINT_FONT;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(label, x + w / 2, y + h / 2 + 1);
+    }
+
+    function drawArrowKeyIcon(cx, cy, s, color, dir) {
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        if (dir === 'up') {
+            ctx.moveTo(cx, cy - s * 0.55);
+            ctx.lineTo(cx + s * 0.55, cy + s * 0.15);
+            ctx.lineTo(cx + s * 0.22, cy + s * 0.15);
+            ctx.lineTo(cx + s * 0.22, cy + s * 0.65);
+            ctx.lineTo(cx - s * 0.22, cy + s * 0.65);
+            ctx.lineTo(cx - s * 0.22, cy + s * 0.15);
+            ctx.lineTo(cx - s * 0.55, cy + s * 0.15);
+        } else {
+            ctx.moveTo(cx, cy + s * 0.55);
+            ctx.lineTo(cx + s * 0.55, cy - s * 0.15);
+            ctx.lineTo(cx + s * 0.22, cy - s * 0.15);
+            ctx.lineTo(cx + s * 0.22, cy - s * 0.65);
+            ctx.lineTo(cx - s * 0.22, cy - s * 0.65);
+            ctx.lineTo(cx - s * 0.22, cy - s * 0.15);
+            ctx.lineTo(cx - s * 0.55, cy - s * 0.15);
+        }
+        ctx.closePath();
+        ctx.fill();
+    }
+
+    function drawSpaceKeyGraphic(x, y, w, h, color) {
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 2;
+        roundRectPath(x, y, w, h, 4);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(x + w * 0.25, y + h * 0.6);
+        ctx.lineTo(x + w * 0.75, y + h * 0.6);
+        ctx.stroke();
+    }
+
+    function drawGameOverHints() {
+        ctx.save();
+        ctx.font = GO_HINT_FONT;
+
+        // 第一行：操作提示
+        const row1Y = PLAY_H / 2 + 70;
+        const keyH = 44;
+        const keyY1 = row1Y - keyH / 2;
+
+        const jumpText = '跳';
+        const duckText = '蹲';
+        const boostText = '加速';
+        const jumpTextW = ctx.measureText(jumpText).width;
+        const duckTextW = ctx.measureText(duckText).width;
+        const boostTextW = ctx.measureText(boostText).width;
+
+        const arrowKeyW = 44;
+        const spaceKeyW = gamepadConnected ? keyH : 96;
+        const labelGap = 12;
+        const itemGap = 30;
+        const totalW1 = arrowKeyW * 2 + labelGap * 2 + 30 + jumpTextW + duckTextW + spaceKeyW + boostTextW + itemGap * 2;
+        let x1 = (W - totalW1) / 2;
+
+        drawHintKey(x1, keyY1, arrowKeyW, keyH);
+        drawArrowKeyIcon(x1 + arrowKeyW / 2, keyY1 + keyH / 2, arrowKeyW * 0.52, '#0b1a2f', 'up');
+        x1 += arrowKeyW + labelGap;
+        ctx.fillStyle = '#dfeef8';
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(jumpText, x1, keyY1 + keyH / 2 + 1);
+        x1 += jumpTextW + itemGap;
+
+        drawHintKey(x1, keyY1, arrowKeyW, keyH);
+        drawArrowKeyIcon(x1 + arrowKeyW / 2, keyY1 + keyH / 2, arrowKeyW * 0.52, '#0b1a2f', 'down');
+        x1 += arrowKeyW + labelGap;
+        ctx.fillStyle = '#dfeef8';
+        ctx.fillText(duckText, x1, keyY1 + keyH / 2 + 1);
+        x1 += duckTextW + itemGap;
+
+        if (gamepadConnected) {
+            drawHintKeyWithLabel(x1, keyY1, spaceKeyW, keyH, 'RB');
+        } else {
+            drawHintKey(x1, keyY1, spaceKeyW, keyH);
+            drawSpaceKeyGraphic(x1 + 8, keyY1 + keyH * 0.36, spaceKeyW - 16, keyH * 0.30, '#0b1a2f');
+        }
+        x1 += spaceKeyW + 30;
+        ctx.fillStyle = '#dfeef8';
+        ctx.fillText(boostText, x1, keyY1 + keyH / 2 + 1);
+
+        // 第二行：重开方式
+        const row2Y = PLAY_H / 2 + 150;
+        const keySize2 = 46;
+        const keyY2 = row2Y - keySize2 / 2;
+
+        const clickText = '点击画布重开';
+        const clickTextW = ctx.measureText(clickText).width;
+        const enterLabel = gamepadConnected ? 'ST' : 'Enter';
+        const enterLabelW = Math.max(64, ctx.measureText('Enter').width + 24);
+        const stLabelW = 46;
+        const orW = 22;
+        const clickIconS = 34;
+        const totalW2 = (gamepadConnected ? stLabelW : enterLabelW) + 10 + orW + 10 + clickIconS + 6 + clickTextW;
+        let hx = (W - totalW2) / 2;
+
+        if (gamepadConnected) {
+            drawHintKeyWithLabel(hx, keyY2, stLabelW, keySize2, 'ST');
+            hx += stLabelW + 10;
+        } else {
+            drawHintKeyWithLabel(hx, keyY2, enterLabelW, keySize2, enterLabel);
+            hx += enterLabelW + 10;
+        }
+
+        ctx.fillStyle = '#dfeef8';
+        ctx.font = 'bold 20px "Courier New", monospace';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('或', hx + orW / 2, keyY2 + keySize2 / 2 + 1);
+        hx += orW + 10;
+
+        const clickIconX = hx + clickIconS / 2;
+        const clickIconY = keyY2 + keySize2 / 2;
+        ctx.save();
+        ctx.strokeStyle = '#dfeef8';
+        ctx.fillStyle = '#dfeef8';
+        ctx.lineWidth = 2.4;
+        ctx.beginPath();
+        ctx.arc(clickIconX, clickIconY, clickIconS * 0.38, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.arc(clickIconX, clickIconY, clickIconS * 0.10, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.moveTo(clickIconX, clickIconY - clickIconS * 0.38);
+        ctx.lineTo(clickIconX, clickIconY - clickIconS * 0.58);
+        ctx.moveTo(clickIconX - clickIconS * 0.24, clickIconY - clickIconS * 0.32);
+        ctx.lineTo(clickIconX - clickIconS * 0.38, clickIconY - clickIconS * 0.46);
+        ctx.moveTo(clickIconX + clickIconS * 0.24, clickIconY - clickIconS * 0.32);
+        ctx.lineTo(clickIconX + clickIconS * 0.38, clickIconY - clickIconS * 0.46);
+        ctx.stroke();
+        ctx.restore();
+
+        ctx.fillStyle = '#dfeef8';
+        ctx.font = GO_HINT_FONT;
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(clickText, hx + clickIconS + 6, keyY2 + keySize2 / 2 + 1);
+        ctx.restore();
+    }
+
+    function draw() {
+        applyCanvasTransform();
+        ctx.clearRect(0, 0, W, H);
+
+        ctx.fillStyle = skyGrad;
+        ctx.fillRect(0, 0, W, PLAY_H);
+
+        drawClouds();
+
+        const groundH = 40 * V_SCALE;
+        ctx.fillStyle = '#7a9e7e';
+        ctx.fillRect(0, PLAY_H - groundH, W, groundH);
+        ctx.fillStyle = '#5f7e5f';
+        const dashW = 20 * H_SCALE;
+        const dashPeriod = 45 * H_SCALE;
+        const dashStart = -((bgOffset * 2) % dashPeriod);
+        for (let x = dashStart; x < W; x += dashPeriod) {
+            ctx.fillRect(x, PLAY_H - 28 * V_SCALE, dashW, 6 * V_SCALE);
+        }
+        ctx.fillStyle = '#4f6b4f';
+        ctx.fillRect(0, PLAY_H - 12 * V_SCALE, W, 6 * V_SCALE);
+
+        for (let obs of obstacles) {
+            if (obs.type === 'top') {
+                ctx.fillStyle = '#b13e3e';
+                ctx.shadowColor = '#6b1f1f';
+            } else {
+                ctx.fillStyle = '#2e6b8f';
+                ctx.shadowColor = '#153b52';
+            }
+            ctx.shadowBlur = 8;
+            ctx.shadowOffsetY = 3;
+            const r = 6 * V_SCALE;
+            ctx.beginPath();
+            ctx.moveTo(obs.x + r, obs.y);
+            ctx.lineTo(obs.x + obs.w - r, obs.y);
+            ctx.quadraticCurveTo(obs.x + obs.w, obs.y, obs.x + obs.w, obs.y + r);
+            ctx.lineTo(obs.x + obs.w, obs.y + obs.h - r);
+            ctx.quadraticCurveTo(obs.x + obs.w, obs.y + obs.h, obs.x + obs.w - r, obs.y + obs.h);
+            ctx.lineTo(obs.x + r, obs.y + obs.h);
+            ctx.quadraticCurveTo(obs.x, obs.y + obs.h, obs.x, obs.y + obs.h - r);
+            ctx.lineTo(obs.x, obs.y + r);
+            ctx.quadraticCurveTo(obs.x, obs.y, obs.x + r, obs.y);
+            ctx.closePath();
+            ctx.fill();
+            ctx.shadowBlur = 0;
+            ctx.shadowOffsetY = 0;
+            ctx.strokeStyle = '#fff3e0';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+        }
+
+        const playerRect = getPlayerRect();
+        if (playerState === 'jump') {
+            ctx.fillStyle = '#f5c542';
+            ctx.shadowColor = '#b88a1a';
+        } else if (playerState === 'duck') {
+            ctx.fillStyle = '#44b78b';
+            ctx.shadowColor = '#1d6b4a';
+        } else {
+            ctx.fillStyle = '#f09b4a';
+            ctx.shadowColor = '#9e5c1a';
+        }
+        ctx.shadowBlur = 12;
+        ctx.shadowOffsetY = 4;
+        const px = playerRect.x, py = playerRect.y, pw = playerRect.w, ph = playerRect.h;
+        const pr = 10 * V_SCALE;
+        ctx.beginPath();
+        ctx.moveTo(px + pr, py);
+        ctx.lineTo(px + pw - pr, py);
+        ctx.quadraticCurveTo(px + pw, py, px + pw, py + pr);
+        ctx.lineTo(px + pw, py + ph - pr);
+        ctx.quadraticCurveTo(px + pw, py + ph, px + pw - pr, py + ph);
+        ctx.lineTo(px + pr, py + ph);
+        ctx.quadraticCurveTo(px, py + ph, px, py + ph - pr);
+        ctx.lineTo(px, py + pr);
+        ctx.quadraticCurveTo(px, py, px + pr, py);
+        ctx.closePath();
+        ctx.fill();
+
+        ctx.shadowBlur = 0;
+        ctx.shadowOffsetY = 0;
+        ctx.fillStyle = '#ffffff';
+        ctx.beginPath();
+        ctx.arc(px + pw - 14 * H_SCALE, py + 16 * V_SCALE, 5 * V_SCALE, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#1e1e1e';
+        ctx.beginPath();
+        ctx.arc(px + pw - 16 * H_SCALE, py + 14 * V_SCALE, 2.5 * V_SCALE, 0, Math.PI * 2);
+        ctx.fill();
+
+        if (playerState === 'jump') {
+            ctx.fillStyle = '#ffffff80';
+            ctx.beginPath();
+            ctx.arc(px + pw / 2, py + ph - 8 * V_SCALE, 8 * V_SCALE, 0, Math.PI * 2);
+            ctx.fill();
+        }
+
+        if (gameOver) {
+            ctx.fillStyle = '#000000aa';
+            ctx.fillRect(0, 0, W, PLAY_H);
+
+            ctx.save();
+            ctx.textAlign = 'left';
+            ctx.textBaseline = 'top';
+            ctx.font = HUD_FONT;
+            ctx.fillStyle = 'rgba(223, 238, 248, 0.85)';
+            ctx.shadowColor = '#000000';
+            ctx.shadowBlur = 6;
+            ctx.fillText('ver: ' + VERSION, 18, 14);
+            ctx.restore();
+
+            ctx.save();
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'alphabetic';
+            ctx.font = GO_TITLE_FONT;
+            ctx.fillStyle = '#f3d9b1';
+            ctx.shadowColor = '#2e1e0e';
+            ctx.shadowBlur = 20;
+            ctx.shadowOffsetY = 8;
+            ctx.fillText('GAME OVER', W / 2, PLAY_H / 2 - 60);
+            ctx.restore();
+
+            ctx.save();
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'alphabetic';
+            ctx.font = GO_SCORE_FONT;
+            ctx.fillStyle = '#dfeef8';
+            ctx.fillText('Score: ' + score + '    High score: ' + highScore, W / 2, PLAY_H / 2 + 10);
+            ctx.restore();
+
+            drawGameOverHints();
+        }
+
+        ctx.shadowBlur = 0;
+        ctx.shadowOffsetY = 0;
+        ctx.textAlign = 'left';
+
+        drawHud();
+    }
+
+    // ---------- 主循环 ----------
+    let lastTime = 0;
+    function gameLoop(timestamp) {
+        if (!lastTime) lastTime = timestamp;
+        let dt = (timestamp - lastTime) / 1000;
+        lastTime = timestamp;
+        if (dt > 0.1) dt = 0.1;
+        if (dt < 0.001) dt = 0.001;
+
+        pollGamepad();
+
+        if (escPressed && !prevEscPressed && gameOver) restart();
+        prevEscPressed = escPressed;
+
+        if (!gameOver) {
+            if (isPlaying && sessionStartTime > 0) totalPlayTime += dt;
+            update(dt);
+        } else if (isPlaying) {
+            saveTotalTime();
+            isPlaying = false;
+        }
+        draw();
         requestAnimationFrame(gameLoop);
-    })();
+    }
+
+    function restart() {
+        if (isPlaying) saveTotalTime();
+        resetGame();
+    }
+
+    window.addEventListener('blur', () => {
+        keys.ArrowUp = false;
+        keys.ArrowDown = false;
+        keys.Space = false;
+        keyboardUpLocked = false;
+        keyboardDownLocked = false;
+        escPressed = false;
+        if (playerState === 'duck') playerState = 'run';
+    });
+
+    window.addEventListener('gamepadconnected', (e) => {
+        gamepadConnected = true;
+        gamepadIndex = e.gamepad.index;
+    });
+
+    window.addEventListener('gamepaddisconnected', () => {
+        gamepadConnected = false;
+        gamepadIndex = -1;
+        prevGamepadButtons.DPadUp = false;
+        prevGamepadButtons.DPadDown = false;
+        prevGamepadButtons.RB = false;
+        prevGamepadButtons.Start = false;
+        gamepadUpLocked = false;
+        gamepadDownLocked = false;
+        gamepadRB = false;
+    });
+
+    // ---------- 初始化 ----------
+    refreshCachedPad();
+    loadHighScore();
+    loadTotalTime();
+    updateFullscreenButton();
+    resizeCanvas();
+    rebuildGradients();
+    resetGame();
+    requestAnimationFrame(() => {
+        resizeCanvas();
+        requestAnimationFrame(resizeCanvas);
+    });
+    requestAnimationFrame(gameLoop);
+})();
 </script>
 </body>
 </html>
