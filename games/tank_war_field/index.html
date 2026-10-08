@@ -37,7 +37,7 @@
             display: block;
             width: 100%;
             height: auto;
-            aspect-ratio: 1280 / 800;
+            aspect-ratio: 1280 / 720;
             border-radius: 14px;
             box-shadow: inset 0 0 20px #00000055, 0 6px 12px black;
             touch-action: none;
@@ -97,7 +97,7 @@
 <body>
 <div class="game-container" id="gameContainer">
     <div class="canvas-wrap" id="canvasWrap">
-        <canvas id="gameCanvas" width="1280" height="800"></canvas>
+        <canvas id="gameCanvas" width="1280" height="720"></canvas>
         <button class="fullscreen-btn" id="fullscreenBtn" aria-label="全屏" title="全屏">
             <svg id="fsIconExpand" viewBox="0 0 24 24" fill="none" stroke="currentColor"
                  stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
@@ -126,16 +126,17 @@
     const fsIconCompress = document.getElementById('fsIconCompress');
 
     // ==================== 常量 ====================
-    // 逻辑坐标系：上方 PLAY_H 为游戏区，下方 HUD_H 为状态栏区，总高 H
     const W = 1280;
-    const PLAY_H = 720;   // 游戏画面高度
-    const HUD_H = 80;     // 状态栏高度
-    const H = PLAY_H + HUD_H;   // 800
+    const H = 720;
+    const HUD_H = 56;
+    const PLAY_H = H - HUD_H;
 
     const FPS_BASE = 60;
     const BULLET_GRAVITY = 0.18 * FPS_BASE * FPS_BASE;
     const POWERUP_GRAVITY = 0.3 * FPS_BASE * FPS_BASE;
     const SCALE = W / 900;
+    const BULLET_GRAVITY_SCALED = BULLET_GRAVITY * SCALE;
+    const POWERUP_GRAVITY_SCALED = POWERUP_GRAVITY * SCALE;
 
     const HP_DOT_SIZE = 13;
     const HP_GAP = 4;
@@ -250,6 +251,17 @@
     document.addEventListener('msfullscreenchange', onFullscreenChange);
 
     // ==================== 画布适配 ====================
+    // 缓存 body/container padding，避免每次 resize 都 getComputedStyle
+    let cachedPadX = 0;
+
+    function refreshCachedPad() {
+        const cs = getComputedStyle(container);
+        const containerPadX = (parseFloat(cs.paddingLeft) || 0) + (parseFloat(cs.paddingRight) || 0);
+        const bs = getComputedStyle(document.body);
+        const bodyPadX = (parseFloat(bs.paddingLeft) || 0) + (parseFloat(bs.paddingRight) || 0);
+        cachedPadX = containerPadX + bodyPadX;
+    }
+
     function applyCanvasTransform() {
         ctx.setTransform(canvas.width / W, 0, 0, canvas.height / H, 0, 0);
     }
@@ -261,14 +273,9 @@
             availWidth = window.innerWidth;
             availHeight = window.innerHeight;
         } else {
-            const cs = getComputedStyle(container);
-            const containerPadX = (parseFloat(cs.paddingLeft) || 0) + (parseFloat(cs.paddingRight) || 0);
-            const bs = getComputedStyle(document.body);
-            const bodyPadX = (parseFloat(bs.paddingLeft) || 0) + (parseFloat(bs.paddingRight) || 0);
-            availWidth = window.innerWidth - bodyPadX - containerPadX;
-            availHeight = window.innerHeight - bodyPadX - containerPadX;
+            availWidth = window.innerWidth - cachedPadX;
+            availHeight = window.innerHeight - cachedPadX;
         }
-        // 按新的宽高比 1280:800 = 1.6
         const availWidthFromHeight = availHeight * (W / H);
         let cssW = Math.min(availWidth, availWidthFromHeight);
         if (!fullscreenApi.isFullscreen()) cssW = Math.min(cssW, 1280);
@@ -290,6 +297,27 @@
     window.addEventListener('resize', scheduleResize);
     window.addEventListener('orientationchange', () => { setTimeout(scheduleResize, 120); setTimeout(scheduleResize, 350); });
     if (window.visualViewport) window.visualViewport.addEventListener('resize', scheduleResize);
+
+    // ==================== 渐变缓存（只创建一次） ====================
+    let skyGrad = null;
+    let terrainGrad = null;
+    let hudBgGrad = null;
+
+    function rebuildGradients() {
+        skyGrad = ctx.createLinearGradient(0, 0, 0, PLAY_H);
+        skyGrad.addColorStop(0, COLOR.sky0);
+        skyGrad.addColorStop(0.6, COLOR.sky1);
+        skyGrad.addColorStop(1, COLOR.sky2);
+
+        terrainGrad = ctx.createLinearGradient(0, PLAY_H - 140, 0, PLAY_H);
+        terrainGrad.addColorStop(0, COLOR.terrain0);
+        terrainGrad.addColorStop(0.5, COLOR.terrain1);
+        terrainGrad.addColorStop(1, COLOR.terrain2);
+
+        hudBgGrad = ctx.createLinearGradient(0, PLAY_H, 0, H);
+        hudBgGrad.addColorStop(0, 'rgba(13, 27, 42, 0.96)');
+        hudBgGrad.addColorStop(1, 'rgba(6, 15, 26, 0.98)');
+    }
 
     // ==================== 背景（山、云） ====================
     let mountains = [];
@@ -339,11 +367,15 @@
     }
 
     function drawClouds() {
-        for (const c of clouds) {
-            ctx.save();
+        ctx.fillStyle = '#ffffff';
+        const len = clouds.length;
+        for (let i = 0; i < len; i++) {
+            const c = clouds[i];
             ctx.globalAlpha = c.alpha;
-            ctx.fillStyle = '#ffffff';
-            for (const p of c.puffs) {
+            const puffs = c.puffs;
+            const plen = puffs.length;
+            for (let j = 0; j < plen; j++) {
+                const p = puffs[j];
                 ctx.save();
                 ctx.translate(c.x + p.offsetX, c.y + p.offsetY);
                 ctx.rotate(p.rotation);
@@ -352,14 +384,15 @@
                 ctx.fill();
                 ctx.restore();
             }
-            ctx.restore();
         }
+        ctx.globalAlpha = 1;
     }
 
     function drawMountains() {
-        ctx.save();
-        for (const m of mountains) {
-            ctx.fillStyle = COLOR.hill;
+        ctx.fillStyle = COLOR.hill;
+        const len = mountains.length;
+        for (let i = 0; i < len; i++) {
+            const m = mountains[i];
             ctx.globalAlpha = m.shade;
             ctx.beginPath();
             ctx.moveTo(m.x - m.halfWidth, m.baseY);
@@ -368,7 +401,7 @@
             ctx.closePath();
             ctx.fill();
         }
-        ctx.restore();
+        ctx.globalAlpha = 1;
     }
 
     // ==================== 音效 ====================
@@ -508,7 +541,6 @@
         terrainParams.wave3.phase = randomRange(0, Math.PI * 2);
     }
 
-    // 地形基于游戏区底部（PLAY_H）
     function terrainY(x) {
         const tp = terrainParams;
         return (PLAY_H - 90 + tp.baseOffset)
@@ -520,14 +552,11 @@
     function drawTerrain() {
         ctx.beginPath();
         ctx.moveTo(0, PLAY_H);
-        for (let x = 0; x <= W; x += 4) ctx.lineTo(x, terrainY(x));
+        // 采样步长 8，视觉无差别，路径点减半
+        for (let x = 0; x <= W; x += 8) ctx.lineTo(x, terrainY(x));
         ctx.lineTo(W, PLAY_H);
         ctx.closePath();
-        const grad = ctx.createLinearGradient(0, PLAY_H - 140, 0, PLAY_H);
-        grad.addColorStop(0, COLOR.terrain0);
-        grad.addColorStop(0.5, COLOR.terrain1);
-        grad.addColorStop(1, COLOR.terrain2);
-        ctx.fillStyle = grad;
+        ctx.fillStyle = terrainGrad;
         ctx.fill();
         ctx.strokeStyle = COLOR.terrainEdge;
         ctx.lineWidth = 3;
@@ -592,7 +621,7 @@
         try { localStorage.setItem('tankHighScore', highScore); } catch (e) {}
     }
     function updateHighScore() {
-        if (score > highScore) { highScore = score; saveHighScore(); }
+        if (score > highScore) { highScore = score; saveHighScore(); hudDirty = true; }
     }
     function loadTotalTime() {
         try {
@@ -617,7 +646,7 @@
         return { x: tank.x + tank.w / 2, y: terrainY(tank.x + tank.w / 2) };
     }
     function snapToTerrain(tank) {
-        tank.y = getTankBottom(tank).y - tank.h;
+        tank.y = terrainY(tank.x + tank.w / 2) - tank.h;
     }
 
     // ==================== 图标绘制 ====================
@@ -684,7 +713,8 @@
 
     // ==================== 敌人生成 ====================
     function wouldOverlap(x, w) {
-        for (const e of enemies) {
+        for (let i = 0; i < enemies.length; i++) {
+            const e = enemies[i];
             const leftA = x - ENEMY_MIN_SPACING;
             const rightA = x + w + ENEMY_MIN_SPACING;
             const leftB = e.x;
@@ -745,18 +775,21 @@
         };
         snapToTerrain(enemy);
         enemies.push(enemy);
+        hudDirty = true;
     }
 
     // ==================== 发射 ====================
     function firePlayerBullet(angleOffset = 0) {
-        const barrelLength = player.w * 0.75;
+        const w = player.w;
+        const barrelLength = w * 0.75;
         const angle = -0.6 + angleOffset;
         const speed = 6.0 * FPS_BASE * SCALE;
-        const vx = Math.cos(angle) * speed * player.dir;
+        const dir = player.dir;
+        const vx = Math.cos(angle) * speed * dir;
         const vy = Math.sin(angle) * speed;
-        const turretX = player.x + player.w / 2;
+        const turretX = player.x + w / 2;
         const turretY = player.y + player.h * 0.35;
-        const muzzleX = turretX + Math.cos(angle) * barrelLength * player.dir;
+        const muzzleX = turretX + Math.cos(angle) * barrelLength * dir;
         const muzzleY = turretY + Math.sin(angle) * barrelLength;
         const baseRadius = 7 * SCALE;
         const radius = player.bigBullet ? baseRadius * 3 : baseRadius;
@@ -773,21 +806,22 @@
 
     function enemyFire(enemy) {
         let fireDir = enemy.dir;
+        const ex = enemy.x, ew = enemy.w, eh = enemy.h, ey = enemy.y;
         if (enemy.isBoss) {
-            const bossCenterX = enemy.x + enemy.w / 2;
+            const bossCenterX = ex + ew / 2;
             const playerCenterX = player.x + player.w / 2;
             fireDir = playerCenterX < bossCenterX ? -1 : 1;
         }
         const splitCount = enemy.splitShot || 1;
         for (let i = 0; i < splitCount; i++) {
             const spread = splitCount > 1 ? (i - (splitCount - 1) / 2) * 0.22 : 0;
-            const barrelLength = enemy.w * 0.75;
+            const barrelLength = ew * 0.75;
             const angle = -0.6 + spread;
             const speed = 5.0 * FPS_BASE * SCALE;
             const vx = Math.cos(angle) * speed * fireDir;
             const vy = Math.sin(angle) * speed;
-            const turretX = enemy.x + enemy.w / 2;
-            const turretY = enemy.y + enemy.h * 0.35;
+            const turretX = ex + ew / 2;
+            const turretY = ey + eh * 0.35;
             const muzzleX = turretX + Math.cos(angle) * barrelLength * fireDir;
             const muzzleY = turretY + Math.sin(angle) * barrelLength;
             bullets.push({
@@ -846,6 +880,7 @@
         enemies.splice(index, 1);
         score += points;
         updateHighScore();
+        hudDirty = true;
     }
 
     function applyBigBulletExplosionDamage(x, y, explosionRadius) {
@@ -1071,9 +1106,10 @@
         if (stillCheckElapsed < STILL_CHECK_DELAY) return;
         if (!stillWarningActive && playerPosHistory.length >= 2) {
             let minX = Infinity, maxX = -Infinity;
-            for (const rec of playerPosHistory) {
-                if (rec.x < minX) minX = rec.x;
-                if (rec.x > maxX) maxX = rec.x;
+            for (let i = 0; i < playerPosHistory.length; i++) {
+                const rx = playerPosHistory[i].x;
+                if (rx < minX) minX = rx;
+                if (rx > maxX) maxX = rx;
             }
             if (maxX - minX <= HALF_TANK_WIDTH && playerPosHistory.length > 10) {
                 stillWarningActive = true;
@@ -1095,7 +1131,7 @@
     function updateAirstrikeBullet(dt) {
         if (!airstrikeBullet) return;
         const b = airstrikeBullet;
-        b.vy += BULLET_GRAVITY * SCALE * dt;
+        b.vy += BULLET_GRAVITY_SCALED * dt;
         b.y += b.vy * dt;
         b.life -= dt;
         const groundY = terrainY(b.x);
@@ -1144,6 +1180,7 @@
                         player.bigBullet = false;
                         updateBuffDisplay();
                         if (playerHP <= 0) {
+                            playerHP = 0;
                             gameOver = true;
                             updateHighScore();
                             saveTotalTime();
@@ -1232,7 +1269,7 @@
         for (let i = powerups.length - 1; i >= 0; i--) {
             const p = powerups[i];
             p.life -= dt;
-            p.vy += POWERUP_GRAVITY * SCALE * dt;
+            p.vy += POWERUP_GRAVITY_SCALED * dt;
             p.y += p.vy * dt;
             const groundY = terrainY(p.x + p.w / 2);
             if (p.y + p.h > groundY) { p.y = groundY - p.h; p.vy = 0; }
@@ -1249,7 +1286,7 @@
 
     function applyPowerup(type) {
         switch (type) {
-            case 'heal': if (playerHP < maxHP) playerHP++; break;
+            case 'heal': if (playerHP < maxHP) { playerHP++; hudDirty = true; } break;
             case 'split2': player.splitShot = 2; player.bigBullet = false; break;
             case 'split3': player.splitShot = 3; player.bigBullet = false; break;
             case 'shield': player.shield = 1; break;
@@ -1260,8 +1297,12 @@
 
     // ==================== 刷怪间隔 ====================
     function getDynamicSpawnInterval() {
-        const bossPresent = enemies.some(e => e.isBoss);
-        const normalCount = enemies.filter(e => !e.isBoss).length;
+        let bossPresent = false;
+        let normalCount = 0;
+        for (let i = 0; i < enemies.length; i++) {
+            if (enemies[i].isBoss) bossPresent = true;
+            else normalCount++;
+        }
         if (bossPresent) return normalCount < BOSS_EXTRA_ENEMY_MIN ? BOSS_EXTRA_SPAWN_FAST : BOSS_EXTRA_SPAWN_SLOW;
         const count = enemies.length;
         if (count < ENEMY_COUNT_THRESHOLD) {
@@ -1277,32 +1318,41 @@
     // ==================== 更新 ====================
     function update(dt) {
         if (gameOver) return;
-        if (keys.ArrowLeft || (gamepadConnected && gamepadLeft)) { player.x -= player.speed * dt; player.dir = -1; }
-        if (keys.ArrowRight || (gamepadConnected && gamepadRight)) { player.x += player.speed * dt; player.dir = 1; }
+
+        const canLeft = keys.ArrowLeft || (gamepadConnected && gamepadLeft);
+        const canRight = keys.ArrowRight || (gamepadConnected && gamepadRight);
+        const pSpeed = player.speed * dt;
+        if (canLeft) { player.x -= pSpeed; player.dir = -1; }
+        if (canRight) { player.x += pSpeed; player.dir = 1; }
         if (player.x < 0) player.x = 0;
         if (player.x + player.w > W) player.x = W - player.w;
         snapToTerrain(player);
+
         if (player.reloadTimer > 0) player.reloadTimer -= dt;
+
         const canFire = player.activeBullets === 0 && player.reloadTimer <= 0;
-        const firePressed = keys.Space || (gamepadConnected && gamepadA);
-        if (firePressed && canFire) {
+        if ((keys.Space || (gamepadConnected && gamepadA)) && canFire) {
             const splitCount = player.bigBullet ? 1 : (player.splitShot || 1);
             for (let i = 0; i < splitCount; i++) {
                 const spread = splitCount > 1 ? (i - (splitCount - 1) / 2) * 0.22 : 0;
                 firePlayerBullet(spread);
             }
         }
+
+        // 子弹
         for (let i = bullets.length - 1; i >= 0; i--) {
             const b = bullets[i];
             b.x += b.vx * dt;
             b.y += b.vy * dt;
-            b.vy += BULLET_GRAVITY * SCALE * dt;
+            b.vy += BULLET_GRAVITY_SCALED * dt;
             b.life -= dt;
             if (b.x < -300 || b.x > W + 300 || b.y > PLAY_H + 200 || b.life <= 0) {
                 bullets.splice(i, 1);
                 if (b.isPlayerBullet) onPlayerBulletDestroyed();
             }
         }
+
+        // 敌人
         for (let i = enemies.length - 1; i >= 0; i--) {
             const e = enemies[i];
             e.x += e.speed * e.dir * dt;
@@ -1314,15 +1364,21 @@
             }
             if (e.x < -200 * SCALE || e.x > W + 200 * SCALE) enemies.splice(i, 1);
         }
+
+        // 刷怪
         enemySpawnTimer -= dt;
         if (enemySpawnTimer <= 0) {
-            if (!enemies.some(e => e.isBoss)) spawnEnemy(false);
-            else {
-                const normalCount = enemies.filter(e => !e.isBoss).length;
-                if (normalCount < BOSS_EXTRA_ENEMY_MIN) spawnEnemy(false);
+            let bossPresent = false;
+            let normalCount = 0;
+            for (let i = 0; i < enemies.length; i++) {
+                if (enemies[i].isBoss) bossPresent = true;
+                else normalCount++;
             }
+            if (!bossPresent) spawnEnemy(false);
+            else if (normalCount < BOSS_EXTRA_ENEMY_MIN) spawnEnemy(false);
             enemySpawnTimer = getDynamicSpawnInterval();
         }
+
         checkBulletCollisions();
         updateExplosions(dt);
         updatePowerups(dt);
@@ -1331,9 +1387,36 @@
         updateClouds(dt);
     }
 
-    // ==================== 状态栏（独立一行，位于画面下方） ====================
+    // ==================== 状态栏（缓存） ====================
+    let hudDirty = true;
+    let hudScoreStr = '', hudHsStr = '', hudTimeStr = '', hudBossStr = '';
+    let hudScoreW = 0, hudHsW = 0, hudTimeW = 0, hudBossW = 0;
+    let hudLastTime = -1;
+
+    function rebuildHudCache() {
+        hudScoreStr = 'Score: ' + score;
+        hudHsStr = 'High score: ' + highScore;
+        hudTimeStr = 'Time: ' + getFormattedTime();
+        hudBossStr = 'BOSS ' + getBossHpDisplay() + ' HP';
+
+        const savedFont = ctx.font;
+        ctx.font = 'bold 18px "Courier New", monospace';
+        const pillPadX = 14;
+        hudScoreW = ctx.measureText(hudScoreStr).width + pillPadX * 2;
+        hudHsW = ctx.measureText(hudHsStr).width + pillPadX * 2;
+        hudTimeW = ctx.measureText(hudTimeStr).width + pillPadX * 2;
+        hudBossW = ctx.measureText(hudBossStr).width + pillPadX * 2;
+        ctx.font = savedFont;
+        hudLastTime = Math.floor(totalPlayTime / 60);
+        hudDirty = false;
+    }
+
+    function markHudDirtyIfNeeded() {
+        const curTime = Math.floor(totalPlayTime / 60);
+        if (curTime !== hudLastTime) hudDirty = true;
+    }
+
     function drawPillRect(x, y, w, h, bgColor) {
-        ctx.save();
         ctx.fillStyle = bgColor;
         roundRectPath(x, y, w, h, h / 2);
         ctx.fill();
@@ -1341,89 +1424,58 @@
         ctx.lineWidth = 1;
         roundRectPath(x + 1, y + 1, w - 2, h - 2, (h - 2) / 2);
         ctx.stroke();
-        ctx.restore();
     }
 
     function drawHud() {
-        // 背景条：占据 canvas 底部 HUD_H 高度
-        ctx.save();
-        const bgGrad = ctx.createLinearGradient(0, PLAY_H, 0, H);
-        bgGrad.addColorStop(0, 'rgba(13, 27, 42, 0.96)');
-        bgGrad.addColorStop(1, 'rgba(6, 15, 26, 0.98)');
-        ctx.fillStyle = bgGrad;
+        markHudDirtyIfNeeded();
+        if (hudDirty) rebuildHudCache();
+
+        // 背景条
+        ctx.fillStyle = hudBgGrad;
         ctx.fillRect(0, PLAY_H, W, HUD_H);
-        // 顶边高光
         ctx.strokeStyle = 'rgba(120, 170, 210, 0.35)';
         ctx.lineWidth = 1;
         ctx.beginPath();
         ctx.moveTo(0, PLAY_H + 0.5);
         ctx.lineTo(W, PLAY_H + 0.5);
         ctx.stroke();
-        ctx.restore();
 
-        // 内容居中一行
-        const pad = 14;
-        const pillH = 40;
-        const fontSize = 20;
+        const pillH = 36;
+        const fontSize = 18;
         const pillBg = 'rgba(30, 47, 74, 0.85)';
         const pillBgStrong = 'rgba(52, 78, 116, 0.9)';
-        const textColor = '#dfeef8';
-        const goldColor = '#ffd966';
-        const timeColor = '#9bf6b0';
-
-        ctx.save();
-        ctx.font = 'bold ' + fontSize + 'px "Courier New", monospace';
-        ctx.textBaseline = 'middle';
-        ctx.textAlign = 'left';
-
-        const scoreStr = 'Score: ' + score;
-        const hsStr = 'High score: ' + highScore;
-        const timeStr = 'Time: ' + getFormattedTime();
-        const bossHpStr = 'BOSS ' + getBossHpDisplay() + ' HP';
-
-        const pillPadX = 18;
-        const scorePillW = ctx.measureText(scoreStr).width + pillPadX * 2;
-        const hsPillW = ctx.measureText(hsStr).width + pillPadX * 2;
-        const timePillW = ctx.measureText(timeStr).width + pillPadX * 2;
-        const bossPillW = ctx.measureText(bossHpStr).width + pillPadX * 2;
-
-        const gap = 12;
-        const totalW = scorePillW + hsPillW + timePillW + bossPillW + gap * 3;
+        const pillPadX = 14;
+        const gap = 10;
+        const totalW = hudScoreW + hudHsW + hudTimeW + hudBossW + gap * 3;
         let x = (W - totalW) / 2;
         const y = PLAY_H + (HUD_H - pillH) / 2;
 
-        // Score
-        drawPillRect(x, y, scorePillW, pillH, pillBg);
-        ctx.fillStyle = textColor;
         ctx.font = 'bold ' + fontSize + 'px "Courier New", monospace';
-        ctx.textAlign = 'left';
         ctx.textBaseline = 'middle';
-        ctx.fillText(scoreStr, x + pillPadX, y + pillH / 2 + 1);
-        x += scorePillW + gap;
+        ctx.textAlign = 'left';
 
-        // High score
-        drawPillRect(x, y, hsPillW, pillH, pillBgStrong);
-        ctx.fillStyle = goldColor;
-        ctx.fillText(hsStr, x + pillPadX, y + pillH / 2 + 1);
-        x += hsPillW + gap;
+        drawPillRect(x, y, hudScoreW, pillH, pillBg);
+        ctx.fillStyle = '#dfeef8';
+        ctx.fillText(hudScoreStr, x + pillPadX, y + pillH / 2 + 1);
+        x += hudScoreW + gap;
 
-        // Time
-        drawPillRect(x, y, timePillW, pillH, pillBg);
-        ctx.fillStyle = timeColor;
-        ctx.fillText(timeStr, x + pillPadX, y + pillH / 2 + 1);
-        x += timePillW + gap;
+        drawPillRect(x, y, hudHsW, pillH, pillBgStrong);
+        ctx.fillStyle = '#ffd966';
+        ctx.fillText(hudHsStr, x + pillPadX, y + pillH / 2 + 1);
+        x += hudHsW + gap;
 
-        // BOSS
-        drawPillRect(x, y, bossPillW, pillH, pillBgStrong);
-        ctx.fillStyle = goldColor;
-        ctx.fillText(bossHpStr, x + pillPadX, y + pillH / 2 + 1);
+        drawPillRect(x, y, hudTimeW, pillH, pillBg);
+        ctx.fillStyle = '#9bf6b0';
+        ctx.fillText(hudTimeStr, x + pillPadX, y + pillH / 2 + 1);
+        x += hudTimeW + gap;
 
-        ctx.restore();
+        drawPillRect(x, y, hudBossW, pillH, pillBgStrong);
+        ctx.fillStyle = '#ffd966';
+        ctx.fillText(hudBossStr, x + pillPadX, y + pillH / 2 + 1);
     }
 
     // ==================== Game Over ====================
     function drawArrowKeyIcon(cx, cy, s, color, dir) {
-        ctx.save();
         ctx.fillStyle = color;
         ctx.beginPath();
         if (dir === 'left') {
@@ -1445,11 +1497,9 @@
         }
         ctx.closePath();
         ctx.fill();
-        ctx.restore();
     }
 
     function drawSpaceKeyGraphic(x, y, w, h, color) {
-        ctx.save();
         ctx.strokeStyle = color;
         ctx.lineWidth = 2;
         roundRectPath(x, y, w, h, 4);
@@ -1458,11 +1508,9 @@
         ctx.moveTo(x + w * 0.25, y + h * 0.6);
         ctx.lineTo(x + w * 0.75, y + h * 0.6);
         ctx.stroke();
-        ctx.restore();
     }
 
     function drawHintKey(x, y, w, h) {
-        ctx.save();
         ctx.fillStyle = 'rgba(240, 243, 248, 0.92)';
         roundRectPath(x, y, w, h, 5);
         ctx.fill();
@@ -1470,15 +1518,12 @@
         ctx.lineWidth = 2;
         roundRectPath(x, y, w, h, 5);
         ctx.stroke();
-        ctx.restore();
     }
 
     function drawGameOver() {
-        // 遮罩只覆盖游戏区（不含状态栏）
-        ctx.save();
+        // 遮罩
         ctx.fillStyle = '#000000aa';
         ctx.fillRect(0, 0, W, PLAY_H);
-        ctx.restore();
 
         // 标题
         ctx.save();
@@ -1492,7 +1537,7 @@
         ctx.fillText('GAME OVER', W / 2, PLAY_H / 2 - 130);
         ctx.restore();
 
-        // 分数汇总
+        // 分数
         ctx.save();
         ctx.textAlign = 'center';
         ctx.textBaseline = 'alphabetic';
@@ -1516,7 +1561,6 @@
         const arrowKeyW = 44;
         const arrowGap = 6;
         const spaceKeyW = 96;
-
         const arrowsBlockW = arrowKeyW * 2 + arrowGap;
         const interGroup = 30;
         const labelGap = 12;
@@ -1532,7 +1576,6 @@
         x1 += arrowKeyW + labelGap;
 
         ctx.fillStyle = '#dfeef8';
-        ctx.font = 'bold 22px "Courier New", monospace';
         ctx.textAlign = 'left';
         ctx.textBaseline = 'middle';
         ctx.fillText(moveText, x1, keyY1 + keyH / 2 + 1);
@@ -1543,9 +1586,6 @@
         x1 += spaceKeyW + labelGap;
 
         ctx.fillStyle = '#dfeef8';
-        ctx.font = 'bold 22px "Courier New", monospace';
-        ctx.textAlign = 'left';
-        ctx.textBaseline = 'middle';
         ctx.fillText(fireText, x1, keyY1 + keyH / 2 + 1);
         ctx.restore();
 
@@ -1569,7 +1609,6 @@
 
         drawHintKey(hx, keyY2, escLabelW, keySize2);
         ctx.fillStyle = '#0b1a2f';
-        ctx.font = 'bold 22px "Courier New", monospace';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         ctx.fillText(escLabel, hx + escLabelW / 2, keyY2 + keySize2 / 2 + 1);
@@ -1577,23 +1616,17 @@
 
         ctx.fillStyle = '#dfeef8';
         ctx.font = 'bold 20px "Courier New", monospace';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
         ctx.fillText('或', hx + orW / 2, keyY2 + keySize2 / 2 + 1);
         hx += orW + 10;
 
         drawHintKey(hx, keyY2, stLabelW, keySize2);
         ctx.fillStyle = '#0b1a2f';
         ctx.font = 'bold 22px "Courier New", monospace';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
         ctx.fillText(stLabel, hx + stLabelW / 2, keyY2 + keySize2 / 2 + 1);
         hx += stLabelW + 10;
 
         ctx.fillStyle = '#dfeef8';
         ctx.font = 'bold 20px "Courier New", monospace';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
         ctx.fillText('或', hx + orW / 2, keyY2 + keySize2 / 2 + 1);
         hx += orW + 10;
 
@@ -1630,7 +1663,8 @@
     // ==================== 绘制坦克/道具 ====================
     function drawPowerup(p) {
         const cx = p.x + p.w / 2, cy = p.y + p.h / 2, half = p.w / 2;
-        const [base, light] = COLOR.pickupColors[p.type];
+        const cols = COLOR.pickupColors[p.type];
+        const base = cols[0], light = cols[1];
         ctx.save();
         ctx.shadowBlur = 20;
         ctx.shadowColor = light;
@@ -1692,7 +1726,7 @@
     }
 
     function drawTank(tank, bodyColor, darkColor, lightColor, isEnemy) {
-        const { x, y, w, h, dir } = tank;
+        const x = tank.x, y = tank.y, w = tank.w, h = tank.h, dir = tank.dir;
         const cx = x + w / 2;
         const baseY = y + h;
         const turretX = cx;
@@ -1708,6 +1742,7 @@
         } else {
             angle = dir === 1 ? -0.5 : Math.PI + 0.5;
         }
+        // 炮管
         ctx.save();
         ctx.translate(turretX, turretY);
         ctx.rotate(angle);
@@ -1719,6 +1754,7 @@
         ctx.globalAlpha = 0.35;
         ctx.fillRect(3, -barrelWidth / 2 + 1.5, barrelLength - 14, 3);
         ctx.restore();
+        // 车身
         ctx.fillStyle = bodyColor;
         ctx.beginPath();
         if (dir === 1) {
@@ -1740,12 +1776,14 @@
         ctx.strokeStyle = darkColor;
         ctx.lineWidth = 2;
         ctx.stroke();
+        // 高光
         ctx.save();
         ctx.fillStyle = lightColor;
         ctx.globalAlpha = 0.35;
         if (dir === 1) ctx.fillRect(x + w * 0.1, y + h * 0.4, w * 0.5, 3.5);
         else ctx.fillRect(x + w * 0.4, y + h * 0.4, w * 0.5, 3.5);
         ctx.restore();
+        // 履带
         ctx.fillStyle = '#2a2a2a';
         roundRectPath(x - 4, baseY - 13, w + 8, 13, 5);
         ctx.fill();
@@ -1762,6 +1800,7 @@
         ctx.lineWidth = 2;
         roundRectPath(x - 4, baseY - 13, w + 8, 13, 5);
         ctx.stroke();
+        // 炮塔
         const turretW = w * 0.42;
         const turretH = h * 0.55;
         const turretBaseX = dir === 1 ? x + w * 0.22 : x + w * 0.36;
@@ -1779,6 +1818,7 @@
         ctx.fillStyle = lightColor;
         roundRectPath(turretBaseX + turretW * 0.25, y - 7, turretW * 0.5, 7, 3);
         ctx.fill();
+        // 炮口就绪指示
         if (!isEnemy && tank.activeBullets === 0 && tank.reloadTimer <= 0) {
             const angleM = dir === 1 ? -0.5 : Math.PI + 0.5;
             const muzzleX = turretX + Math.cos(angleM) * barrelLength;
@@ -1822,18 +1862,19 @@
 
     // ==================== 子弹/爆炸绘制 ====================
     function drawBullet(b) {
+        const r = b.radius;
         if (b.isBig) {
             ctx.beginPath();
-            ctx.arc(b.x, b.y, b.radius * 1.3, 0, Math.PI * 2);
-            const halo = ctx.createRadialGradient(b.x, b.y, b.radius * 0.5, b.x, b.y, b.radius * 1.3);
+            ctx.arc(b.x, b.y, r * 1.3, 0, Math.PI * 2);
+            const halo = ctx.createRadialGradient(b.x, b.y, r * 0.5, b.x, b.y, r * 1.3);
             halo.addColorStop(0, 'rgba(255, 230, 100, 0.6)');
             halo.addColorStop(1, 'rgba(255, 180, 0, 0)');
             ctx.fillStyle = halo;
             ctx.fill();
         }
         ctx.beginPath();
-        ctx.arc(b.x, b.y, b.radius, 0, Math.PI * 2);
-        const grad = ctx.createRadialGradient(b.x - b.radius * 0.4, b.y - b.radius * 0.4, 1, b.x, b.y, b.radius);
+        ctx.arc(b.x, b.y, r, 0, Math.PI * 2);
+        const grad = ctx.createRadialGradient(b.x - r * 0.4, b.y - r * 0.4, 1, b.x, b.y, r);
         if (b.isEnemy) {
             grad.addColorStop(0, '#ffcccc');
             grad.addColorStop(0.5, '#ff6b6b');
@@ -1855,16 +1896,17 @@
     }
 
     function drawAirstrikeBullet(b) {
+        const r = b.radius;
         ctx.beginPath();
-        ctx.arc(b.x, b.y, b.radius * 1.3, 0, Math.PI * 2);
-        const halo = ctx.createRadialGradient(b.x, b.y, b.radius * 0.5, b.x, b.y, b.radius * 1.3);
+        ctx.arc(b.x, b.y, r * 1.3, 0, Math.PI * 2);
+        const halo = ctx.createRadialGradient(b.x, b.y, r * 0.5, b.x, b.y, r * 1.3);
         halo.addColorStop(0, 'rgba(255, 100, 100, 0.7)');
         halo.addColorStop(1, 'rgba(255, 0, 0, 0)');
         ctx.fillStyle = halo;
         ctx.fill();
         ctx.beginPath();
-        ctx.arc(b.x, b.y, b.radius, 0, Math.PI * 2);
-        const grad = ctx.createRadialGradient(b.x - b.radius * 0.4, b.y - b.radius * 0.4, 1, b.x, b.y, b.radius);
+        ctx.arc(b.x, b.y, r, 0, Math.PI * 2);
+        const grad = ctx.createRadialGradient(b.x - r * 0.4, b.y - r * 0.4, 1, b.x, b.y, r);
         grad.addColorStop(0, '#ffbbbb');
         grad.addColorStop(0.4, '#ff4444');
         grad.addColorStop(1, '#880000');
@@ -1883,15 +1925,15 @@
             case 'tank-particle':
             case 'clash-spark':
             case 'big-ground-particle':
-                ctx.save();
+                ctx.globalAlpha = alpha;
                 ctx.beginPath();
                 ctx.arc(e.x, e.y, e.size, 0, Math.PI * 2);
                 ctx.fillStyle = e.color;
-                ctx.globalAlpha = alpha;
                 ctx.shadowBlur = 16;
                 ctx.shadowColor = e.color;
                 ctx.fill();
-                ctx.restore();
+                ctx.shadowBlur = 0;
+                ctx.globalAlpha = 1;
                 break;
             case 'boss-smoke':
             case 'tank-smoke':
@@ -1902,7 +1944,6 @@
                 ctx.fill();
                 break;
             case 'clash-core': {
-                ctx.save();
                 ctx.beginPath();
                 ctx.arc(e.x, e.y, e.radius, 0, Math.PI * 2);
                 const cg = ctx.createRadialGradient(e.x, e.y, 0, e.x, e.y, e.radius);
@@ -1913,11 +1954,10 @@
                 ctx.shadowBlur = 50;
                 ctx.shadowColor = '#ffee88';
                 ctx.fill();
-                ctx.restore();
+                ctx.shadowBlur = 0;
                 break;
             }
             case 'clash-ring': {
-                ctx.save();
                 ctx.beginPath();
                 ctx.arc(e.x, e.y, e.radius, 0, Math.PI * 2);
                 ctx.strokeStyle = 'rgba(255, 220, 80, ' + alpha + ')';
@@ -1925,11 +1965,10 @@
                 ctx.shadowBlur = 35;
                 ctx.shadowColor = '#ffcc00';
                 ctx.stroke();
-                ctx.restore();
+                ctx.shadowBlur = 0;
                 break;
             }
             case 'clash-ring2': {
-                ctx.save();
                 ctx.beginPath();
                 ctx.arc(e.x, e.y, e.radius, 0, Math.PI * 2);
                 ctx.strokeStyle = 'rgba(255, 100, 50, ' + alpha + ')';
@@ -1937,12 +1976,11 @@
                 ctx.shadowBlur = 25;
                 ctx.shadowColor = '#ff5500';
                 ctx.stroke();
-                ctx.restore();
+                ctx.shadowBlur = 0;
                 break;
             }
             case 'boss-core':
             case 'big-ground-core': {
-                ctx.save();
                 ctx.beginPath();
                 ctx.arc(e.x, e.y, e.radius, 0, Math.PI * 2);
                 const bg = ctx.createRadialGradient(e.x, e.y, e.radius * 0.2, e.x, e.y, e.radius);
@@ -1954,11 +1992,10 @@
                 ctx.shadowBlur = 45;
                 ctx.shadowColor = '#ff4400';
                 ctx.fill();
-                ctx.restore();
+                ctx.shadowBlur = 0;
                 break;
             }
             case 'boss-secondary': {
-                ctx.save();
                 ctx.beginPath();
                 ctx.arc(e.x, e.y, e.radius, 0, Math.PI * 2);
                 const bg = ctx.createRadialGradient(e.x, e.y, 0, e.x, e.y, e.radius);
@@ -1969,11 +2006,10 @@
                 ctx.shadowBlur = 35;
                 ctx.shadowColor = '#ffaa00';
                 ctx.fill();
-                ctx.restore();
+                ctx.shadowBlur = 0;
                 break;
             }
             case 'boss-ring': {
-                ctx.save();
                 ctx.beginPath();
                 ctx.arc(e.x, e.y, e.radius, 0, Math.PI * 2);
                 ctx.strokeStyle = 'rgba(255, 220, 100, ' + alpha + ')';
@@ -1981,11 +2017,10 @@
                 ctx.shadowBlur = 30;
                 ctx.shadowColor = '#ffcc00';
                 ctx.stroke();
-                ctx.restore();
+                ctx.shadowBlur = 0;
                 break;
             }
             case 'big-ground-ring': {
-                ctx.save();
                 ctx.beginPath();
                 ctx.arc(e.x, e.y, e.radius, 0, Math.PI * 2);
                 ctx.strokeStyle = 'rgba(255, 200, 80, ' + alpha + ')';
@@ -1993,29 +2028,27 @@
                 ctx.shadowBlur = 40;
                 ctx.shadowColor = '#ffaa00';
                 ctx.stroke();
-                ctx.restore();
+                ctx.shadowBlur = 0;
                 break;
             }
             case 'tank-core': {
-                ctx.save();
                 ctx.beginPath();
                 ctx.arc(e.x, e.y, e.radius, 0, Math.PI * 2);
                 ctx.fillStyle = 'rgba(255, 100, 30, ' + (alpha * 0.9) + ')';
                 ctx.shadowBlur = 30;
                 ctx.shadowColor = '#ff4400';
                 ctx.fill();
-                ctx.restore();
+                ctx.shadowBlur = 0;
                 break;
             }
             default: {
-                ctx.save();
                 ctx.beginPath();
                 ctx.arc(e.x, e.y, e.radius, 0, Math.PI * 2);
                 ctx.fillStyle = 'rgba(255, 180, 50, ' + (alpha * 0.8) + ')';
                 ctx.shadowBlur = 30;
                 ctx.shadowColor = '#ff6600';
                 ctx.fill();
-                ctx.restore();
+                ctx.shadowBlur = 0;
             }
         }
     }
@@ -2104,17 +2137,11 @@
 
     function draw() {
         applyCanvasTransform();
-        // 全部清空（游戏区 + HUD 区）
         ctx.clearRect(0, 0, W, H);
 
         buffPulse = (buffPulse + 0.1) % (Math.PI * 2);
 
-        // ===== 游戏区（0 ~ PLAY_H）=====
         // 天空
-        const skyGrad = ctx.createLinearGradient(0, 0, 0, PLAY_H);
-        skyGrad.addColorStop(0, COLOR.sky0);
-        skyGrad.addColorStop(0.6, COLOR.sky1);
-        skyGrad.addColorStop(1, COLOR.sky2);
         ctx.fillStyle = skyGrad;
         ctx.fillRect(0, 0, W, PLAY_H);
 
@@ -2122,9 +2149,10 @@
         drawMountains();
         drawTerrain();
 
-        for (const p of powerups) drawPowerup(p);
+        for (let i = 0; i < powerups.length; i++) drawPowerup(powerups[i]);
 
-        for (const e of enemies) {
+        for (let i = 0; i < enemies.length; i++) {
+            const e = enemies[i];
             const colors = e.isBoss ? COLOR.boss :
                           (e.hasSplitShot ? COLOR.enemySplit :
                           (e.hasFastFire ? COLOR.enemyFast : COLOR.enemyNormal));
@@ -2133,12 +2161,13 @@
 
         drawTank(player, COLOR.player[0], COLOR.player[1], COLOR.player[2], false);
 
-        for (const b of bullets) drawBullet(b);
+        for (let i = 0; i < bullets.length; i++) drawBullet(bullets[i]);
         if (airstrikeBullet) drawAirstrikeBullet(airstrikeBullet);
 
-        for (const e of explosions) drawExplosion(e);
+        for (let i = 0; i < explosions.length; i++) drawExplosion(explosions[i]);
 
-        for (const e of enemies) {
+        for (let i = 0; i < enemies.length; i++) {
+            const e = enemies[i];
             if (e.maxHp > 1) drawHealthBar(e.x, e.w, e.y, e.hp, e.maxHp);
         }
         drawHealthBar(player.x, player.w, player.y, playerHP, maxHP);
@@ -2148,10 +2177,8 @@
 
         drawReloadBar();
 
-        // Game Over 覆盖只覆盖游戏区
         if (gameOver) drawGameOver();
 
-        // ===== 状态栏（PLAY_H ~ H）=====
         drawHud();
 
         ctx.textAlign = 'left';
@@ -2223,10 +2250,10 @@
         enemyKillCount = 0;
         nextBossThreshold = 10;
         gameOver = false;
-        enemies = [];
-        bullets = [];
-        explosions = [];
-        powerups = [];
+        enemies.length = 0;
+        bullets.length = 0;
+        explosions.length = 0;
+        powerups.length = 0;
         enemySpawnTimer = 0;
         lastPowerupType = null;
         resetPlayer();
@@ -2240,6 +2267,8 @@
         prevEscPressed = false;
         sessionStartTime = performance.now();
         isPlaying = true;
+        hudDirty = true;
+        hudLastTime = 0;
     }
 
     // ==================== 主循环 ====================
@@ -2249,7 +2278,7 @@
         let dt = (timestamp - lastTimestamp) / 1000;
         lastTimestamp = timestamp;
         if (dt > 0.1) dt = 0.1;
-        if (dt < 0.001) dt = 0.001;
+        else if (dt < 0.001) dt = 0.001;
 
         pollGamepad();
 
@@ -2302,10 +2331,13 @@
     }
 
     // ==================== 初始化 ====================
+    refreshCachedPad();
     loadHighScore();
     loadTotalTime();
     updateFullscreenButton();
+    // 先设置画布尺寸与变换，再创建渐变（渐变依赖 ctx 当前状态下的逻辑坐标）
     resizeCanvas();
+    rebuildGradients();
     restartGame();
     spawnEnemy(false);
     requestAnimationFrame(() => {
