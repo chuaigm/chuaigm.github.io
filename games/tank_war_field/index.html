@@ -29,7 +29,17 @@
             align-items: center;
             max-width: 100%;
             max-height: 100%;
+            transition: border-radius 0.2s;
         }
+
+        /* 画布外层：给全屏按钮提供定位上下文 */
+        .canvas-wrap {
+            position: relative;
+            width: 100%;
+            max-width: 1280px;
+            line-height: 0;
+        }
+
         canvas {
             display: block;
             width: 100%;
@@ -38,6 +48,48 @@
             border-radius: 14px;
             box-shadow: inset 0 0 20px #00000055, 0 6px 12px black;
             touch-action: none;
+        }
+
+        /* 全屏按钮：淡色、可触摸、右上角 */
+        .fullscreen-btn {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            width: 44px;
+            height: 44px;
+            min-width: 44px;
+            min-height: 44px;
+            border: none;
+            border-radius: 12px;
+            background: rgba(255, 255, 255, 0.10);
+            color: rgba(255, 255, 255, 0.55);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            touch-action: manipulation;
+            -webkit-tap-highlight-color: transparent;
+            backdrop-filter: blur(4px);
+            -webkit-backdrop-filter: blur(4px);
+            transition: background 0.15s, color 0.15s, transform 0.1s;
+            z-index: 10;
+            padding: 0;
+            outline: none;
+        }
+        .fullscreen-btn:hover {
+            background: rgba(255, 255, 255, 0.20);
+            color: rgba(255, 255, 255, 0.85);
+        }
+        .fullscreen-btn:active {
+            background: rgba(255, 255, 255, 0.30);
+            color: #ffffff;
+            transform: scale(0.94);
+        }
+        .fullscreen-btn svg {
+            width: 22px;
+            height: 22px;
+            display: block;
+            pointer-events: none;
         }
 
         /* 状态栏：不换行，允许收缩 */
@@ -98,30 +150,110 @@
             min-width: 20px;
         }
 
-        /* 文字标签：默认显示 */
         .status-bar .label { display: inline; }
-        /* kbd 上的操作说明文字 */
         .key-hint .hint-label { display: inline; }
 
-        /* 窄屏（手机竖屏或小屏）：隐藏文字标签，只保留图标和数值 */
         @media (max-width: 720px) {
             .status-bar .label { display: none; }
             .status-bar > span { padding: 4px 8px; gap: 2px; }
             .key-hint .hint-label { display: none; }
             .key-hint { gap: 4px; }
+            .fullscreen-btn { width: 40px; height: 40px; top: 8px; right: 8px; }
         }
 
-        /* 超窄屏：进一步压缩 */
         @media (max-width: 420px) {
             .status-bar { gap: 4px; }
             .status-bar > span { padding: 3px 7px; font-size: 0.72rem; }
             .key-hint kbd { padding: 1px 5px; min-width: 18px; font-size: 0.85em; }
+            .fullscreen-btn { width: 36px; height: 36px; top: 6px; right: 6px; }
+            .fullscreen-btn svg { width: 18px; height: 18px; }
+        }
+
+        /* ========== 全屏状态 ========== */
+        /* 让容器在全屏时铺满 */
+        .game-container.is-fullscreen {
+            width: 100vw;
+            height: 100vh;
+            max-width: none;
+            max-height: none;
+            border-radius: 0;
+            padding: 0;
+            background: #000;
+            justify-content: center;
+            align-items: center;
+            gap: 0;
+        }
+        /* 全屏时 canvas-wrap 占满，canvas 按高度约束居中 */
+        .game-container.is-fullscreen .canvas-wrap {
+            width: 100%;
+            height: 100%;
+            max-width: none;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .game-container.is-fullscreen canvas {
+            width: auto !important;
+            height: 100% !important;
+            max-width: 100%;
+            max-height: 100%;
+            border-radius: 0;
+            box-shadow: none;
+        }
+        /* 全屏时状态栏悬浮在底部，半透明 */
+        .game-container.is-fullscreen .status-bar {
+            position: absolute;
+            left: 50%;
+            bottom: 6px;
+            transform: translateX(-50%);
+            width: auto;
+            max-width: calc(100% - 20px);
+            background: rgba(13, 27, 42, 0.55);
+            border-radius: 40px;
+            padding: 4px 10px;
+            backdrop-filter: blur(6px);
+            -webkit-backdrop-filter: blur(6px);
+            z-index: 20;
+        }
+        .game-container.is-fullscreen .status-bar > span,
+        .game-container.is-fullscreen .key-hint {
+            box-shadow: none;
+            background: transparent;
+        }
+        /* 全屏时按钮保持可见 */
+        .game-container.is-fullscreen .fullscreen-btn {
+            top: 12px;
+            right: 12px;
+            background: rgba(255, 255, 255, 0.12);
+            color: rgba(255, 255, 255, 0.65);
+            z-index: 30;
         }
     </style>
 </head>
 <body>
 <div class="game-container" id="gameContainer">
-    <canvas id="gameCanvas" width="1280" height="720"></canvas>
+    <div class="canvas-wrap" id="canvasWrap">
+        <canvas id="gameCanvas" width="1280" height="720"></canvas>
+        <button class="fullscreen-btn" id="fullscreenBtn" aria-label="全屏" title="全屏">
+            <!-- 进入全屏图标 -->
+            <svg id="fsIconExpand" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                 stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M4 9V4h5"/>
+                <path d="M20 9V4h-5"/>
+                <path d="M4 15v5h5"/>
+                <path d="M20 15v5h-5"/>
+            </svg>
+            <!-- 退出全屏图标 -->
+            <svg id="fsIconCompress" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                 stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"
+                 style="display:none;">
+                <path d="M9 4v5H4"/>
+                <path d="M15 4v5h5"/>
+                <path d="M9 20v-5H4"/>
+                <path d="M15 20v-5h5"/>
+            </svg>
+        </button>
+    </div>
     <div class="status-bar" id="statusBar">
         <span class="score-box">🏆 <span class="label">分数:</span> <span id="scoreDisplay">0</span></span>
         <span class="high-score-box">📀 <span class="label">最高分:</span> <span id="highScoreDisplay">0</span></span>
@@ -143,7 +275,11 @@
     const canvas = document.getElementById('gameCanvas');
     const ctx = canvas.getContext('2d');
     const container = document.getElementById('gameContainer');
+    const canvasWrap = document.getElementById('canvasWrap');
     const statusBar = document.getElementById('statusBar');
+    const fullscreenBtn = document.getElementById('fullscreenBtn');
+    const fsIconExpand = document.getElementById('fsIconExpand');
+    const fsIconCompress = document.getElementById('fsIconCompress');
     const scoreSpan = document.getElementById('scoreDisplay');
     const highScoreSpan = document.getElementById('highScoreDisplay');
     const timeSpan = document.getElementById('timeDisplay');
@@ -201,6 +337,78 @@
         }
     };
 
+    // ==================== 全屏控制 ====================
+    const fullscreenApi = {
+        request: () => {
+            const el = document.documentElement;
+            if (el.requestFullscreen) return el.requestFullscreen();
+            if (el.webkitRequestFullscreen) return el.webkitRequestFullscreen();
+            if (el.msRequestFullscreen) return el.msRequestFullscreen();
+        },
+        exit: () => {
+            if (document.exitFullscreen) return document.exitFullscreen();
+            if (document.webkitExitFullscreen) return document.webkitExitFullscreen();
+            if (document.msExitFullscreen) return document.msExitFullscreen();
+        },
+        isFullscreen: () => {
+            return !!(document.fullscreenElement ||
+                     document.webkitFullscreenElement ||
+                     document.msFullscreenElement);
+        }
+    };
+
+    function updateFullscreenButton() {
+        const fs = fullscreenApi.isFullscreen();
+        if (fs) {
+            fsIconExpand.style.display = 'none';
+            fsIconCompress.style.display = 'block';
+            fullscreenBtn.setAttribute('aria-label', '退出全屏');
+            fullscreenBtn.setAttribute('title', '退出全屏');
+        } else {
+            fsIconExpand.style.display = 'block';
+            fsIconCompress.style.display = 'none';
+            fullscreenBtn.setAttribute('aria-label', '全屏');
+            fullscreenBtn.setAttribute('title', '全屏');
+        }
+    }
+
+    function toggleFullscreen() {
+        if (fullscreenApi.isFullscreen()) {
+            fullscreenApi.exit();
+        } else {
+            fullscreenApi.request();
+        }
+    }
+
+    fullscreenBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        initAudio();
+        toggleFullscreen();
+    });
+
+    // 阻止触摸时触发画布的点击事件（避免误触发重开）
+    fullscreenBtn.addEventListener('touchstart', (e) => {
+        e.stopPropagation();
+    }, { passive: true });
+    fullscreenBtn.addEventListener('touchend', (e) => {
+        e.stopPropagation();
+    }, { passive: true });
+
+    // 全屏变化时同步状态
+    function onFullscreenChange() {
+        const fs = fullscreenApi.isFullscreen();
+        container.classList.toggle('is-fullscreen', fs);
+        updateFullscreenButton();
+        // 延迟重算，等全屏布局稳定
+        setTimeout(scheduleResize, 60);
+        setTimeout(scheduleResize, 200);
+        setTimeout(scheduleResize, 500);
+    }
+    document.addEventListener('fullscreenchange', onFullscreenChange);
+    document.addEventListener('webkitfullscreenchange', onFullscreenChange);
+    document.addEventListener('msfullscreenchange', onFullscreenChange);
+
     // ==================== 画布高清适配（含横屏铺满高度） ====================
     function applyCanvasTransform() {
         ctx.setTransform(
@@ -213,47 +421,49 @@
         );
     }
 
-    // 状态栏 + 容器 padding 等占用的高度（估算，用于横屏时的高度约束）
-    // 实际会用测量值动态计算
     function measureChromeHeight() {
-        // game-container 上下 padding + status-bar 高度 + margin
         const containerStyle = getComputedStyle(container);
         const padTop = parseFloat(containerStyle.paddingTop) || 0;
         const padBottom = parseFloat(containerStyle.paddingBottom) || 0;
         const sbStyle = getComputedStyle(statusBar);
         const sbHeight = statusBar.offsetHeight || 0;
         const sbMarginTop = parseFloat(sbStyle.marginTop) || 0;
-        // body padding
         const bodyStyle = getComputedStyle(document.body);
         const bodyPadTop = parseFloat(bodyStyle.paddingTop) || 0;
         const bodyPadBottom = parseFloat(bodyStyle.paddingBottom) || 0;
-        // 给一点安全余量，避免浏览器地址栏/系统栏遮挡
         return padTop + padBottom + sbHeight + sbMarginTop + bodyPadTop + bodyPadBottom + 4;
     }
 
     function resizeCanvas() {
         const dpr = window.devicePixelRatio || 1;
 
-        // 可用宽度（容器内宽减去容器左右 padding）
-        const containerStyle = getComputedStyle(container);
-        const containerPadX = (parseFloat(containerStyle.paddingLeft) || 0) +
-                              (parseFloat(containerStyle.paddingRight) || 0);
-        // 容器允许的最大宽度（CSS 里 max-width:100% 会受 body 限制）
-        const bodyStyle = getComputedStyle(document.body);
-        const bodyPadX = (parseFloat(bodyStyle.paddingLeft) || 0) +
-                         (parseFloat(bodyStyle.paddingRight) || 0);
-        const availWidth = window.innerWidth - bodyPadX - containerPadX;
+        let availWidth, availHeight;
 
-        // 可用高度（窗口高度减去状态栏等占用的部分），再换算成对应的 CSS 宽度
-        const chromeH = measureChromeHeight();
-        const availHeight = window.innerHeight - chromeH;
+        if (fullscreenApi.isFullscreen()) {
+            // 全屏模式：容器铺满屏幕，状态栏浮动在底部
+            // 可用区域就是整个视口
+            availWidth = window.innerWidth;
+            availHeight = window.innerHeight;
+        } else {
+            const containerStyle = getComputedStyle(container);
+            const containerPadX = (parseFloat(containerStyle.paddingLeft) || 0) +
+                                  (parseFloat(containerStyle.paddingRight) || 0);
+            const bodyStyle = getComputedStyle(document.body);
+            const bodyPadX = (parseFloat(bodyStyle.paddingLeft) || 0) +
+                             (parseFloat(bodyStyle.paddingRight) || 0);
+            availWidth = window.innerWidth - bodyPadX - containerPadX;
+
+            const chromeH = measureChromeHeight();
+            availHeight = window.innerHeight - chromeH;
+        }
+
         const availWidthFromHeight = availHeight * (W / H);
 
-        // 取宽度和高度约束的较小值，这样横屏时按高度铺满，竖屏时按宽度铺满
+        // 取宽度和高度约束的较小值：竖屏按宽度，横屏按高度
         let cssW = Math.min(availWidth, availWidthFromHeight);
-        // 桌面端最大不超过 1280
-        cssW = Math.min(cssW, 1280);
-        // 兜底，避免 0 或负值
+        if (!fullscreenApi.isFullscreen()) {
+            cssW = Math.min(cssW, 1280);
+        }
         if (!isFinite(cssW) || cssW < 100) cssW = Math.max(100, Math.min(availWidth, 1280));
 
         const cssH = cssW * (H / W);
@@ -266,7 +476,6 @@
         applyCanvasTransform();
     }
 
-    // 用 ResizeObserver 监听容器/状态栏尺寸变化，更精准
     let resizeScheduled = false;
     function scheduleResize() {
         if (resizeScheduled) return;
@@ -279,7 +488,6 @@
 
     window.addEventListener('resize', scheduleResize);
     window.addEventListener('orientationchange', () => {
-        // 旋转后延迟一点再算，等布局稳定
         setTimeout(scheduleResize, 120);
         setTimeout(scheduleResize, 350);
     });
@@ -1565,7 +1773,6 @@
 
         buffPulse = (buffPulse + 0.1) % (Math.PI * 2);
 
-        // 天空
         const skyGrad = ctx.createLinearGradient(0, 0, 0, H);
         skyGrad.addColorStop(0, COLOR.sky0);
         skyGrad.addColorStop(0.6, COLOR.sky1);
@@ -2322,10 +2529,10 @@
     loadHighScore();
     loadTotalTime();
     updateHints();
+    updateFullscreenButton();
     resizeCanvas();
     restartGame();
     spawnEnemy(false);
-    // 等布局稳定后再算一次（首次渲染时状态栏可能还没撑开高度）
     requestAnimationFrame(() => {
         resizeCanvas();
         requestAnimationFrame(resizeCanvas);
