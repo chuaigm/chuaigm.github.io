@@ -136,7 +136,10 @@
     const PX_PER_M = PLAYER_H / 2;
     const GROUND_H = 90;
     const GRAVITY = 3200;
-    const APEX_HANG_FACTOR = 0.5478;
+    const HOLD_GRAVITY = GRAVITY * 0.5;
+    const APEX_HANG_FACTOR = 0.25;
+    const MIN_JUMP_FRAC = 0.02;
+    const RELEASE_DECAY = 12.74;
     const WALK_SPEED = 260;
 
     const TABLE_COUNT = 6;
@@ -298,6 +301,12 @@
         airPose: 0, armPose: 0, armSide: 1, spinDir: 1
     };
 
+    let jumpHeld = false;
+    let jumpStartY = 0;
+    let jumpPeakY = 0;
+    let jumpCut = false;
+    let jumpCapped = false;
+
     const keys = { ArrowLeft: false, ArrowRight: false, Space: false };
 
     // ==================== 手柄 ====================
@@ -426,12 +435,13 @@
         return 'right';
     }
 
-    let touchLeft = false, touchRight = false;
+    let touchLeft = false, touchRight = false, touchJump = false;
     function refreshTouchFlags() {
-        touchLeft = false; touchRight = false;
+        touchLeft = false; touchRight = false; touchJump = false;
         for (const s of touchStates.values()) {
             if (s.action === 'left') touchLeft = true;
             else if (s.action === 'right') touchRight = true;
+            else if (s.action === 'jump') touchJump = true;
         }
     }
 
@@ -643,8 +653,12 @@
         if (player.airborne) return;
         player.airborne = true;
         player.squash = 0;
+        jumpStartY = player.y;
+        jumpPeakY = player.y;
+        jumpCut = false;
+        jumpCapped = false;
         const peakPx = jumpAbility * PX_PER_M;
-        player.vy = -Math.sqrt(GRAVITY * peakPx / APEX_HANG_FACTOR);
+        player.vy = -Math.sqrt(2 * HOLD_GRAVITY * peakPx);
         player.vy0 = -player.vy;
         player.peakAwarded = false;
         player.airPose = Math.floor(Math.random() * 3);
@@ -683,6 +697,7 @@
         initTables();
         player.x = W / 2; player.y = 0; player.vy = 0; player.vy0 = 0;
         player.airborne = false; player.squash = 0;
+        jumpStartY = 0; jumpPeakY = 0; jumpCut = false; jumpCapped = false;
     }
 
     function pollGamepad() {
@@ -717,6 +732,7 @@
     }
 
     function update(dt) {
+        jumpHeld = keys.Space || gamepadA || touchJump;
         const left = keys.ArrowLeft || gamepadLeft || touchLeft;
         const right = keys.ArrowRight || gamepadRight || touchRight;
         if (left && !right) { player.x -= WALK_SPEED * dt; facing = -1; walkPhase += dt * 10; }
@@ -725,13 +741,32 @@
         if (player.x > W - 30) player.x = W - 30;
 
         if (player.airborne) {
-            const apexT = player.vy0 > 0 ? Math.max(-1, Math.min(1, player.vy / player.vy0)) : 0;
-            const apexSlow = 1 - 0.25 * (1 - Math.abs(apexT));
-            player.vy += GRAVITY * apexSlow * dt;
-            player.y += -player.vy * dt;
+            const peakPx = jumpAbility * PX_PER_M;
+            const capY = jumpStartY + peakPx;
+            const minY = jumpStartY + peakPx * MIN_JUMP_FRAC;
+            const rising = player.vy < 0;
+            if (!jumpHeld && rising) jumpCut = true;
+            const thrusting = rising && (player.y < minY || (!jumpCut && player.y < capY));
+            if (thrusting) {
+                player.y += -player.vy * dt - 0.5 * HOLD_GRAVITY * dt * dt;
+                player.vy += HOLD_GRAVITY * dt;
+            } else {
+                if (jumpCut && rising) {
+                    player.vy *= Math.exp(-RELEASE_DECAY * dt);
+                    if (player.vy > -1) player.vy = 0;
+                }
+                const apexT = player.vy0 > 0 ? Math.max(-1, Math.min(1, player.vy / player.vy0)) : 0;
+                const apexSlow = 1 - APEX_HANG_FACTOR * (1 - Math.abs(apexT));
+                player.y += -player.vy * dt - 0.5 * GRAVITY * apexSlow * dt * dt;
+                player.vy += GRAVITY * apexSlow * dt;
+            }
+            if (player.y >= capY) { player.y = capY; player.vy = 0; jumpCapped = true; }
+            if (player.y > jumpPeakY) jumpPeakY = player.y;
             if (player.vy >= 0 && !player.peakAwarded) {
                 player.peakAwarded = true;
-                const meters = Math.max(0, Math.round(jumpAbility));
+                const meters = (jumpCapped || !jumpCut)
+                    ? Math.round(jumpAbility)
+                    : Math.max(0, Math.round((jumpPeakY - jumpStartY) / PX_PER_M));
                 if (meters > 0) {
                     money += meters;
                     popups.push({ x: player.x, y: player.y, text: '+' + meters + ' $', life: 1.2, color: '#ffd966', follow: true });
