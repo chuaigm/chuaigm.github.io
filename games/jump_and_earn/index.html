@@ -706,9 +706,11 @@
         const aPressed = !!(b[0] && (b[0].pressed || b[0].value > 0.5));
         if (aPressed && !prevA) tryJump();
         prevA = aPressed;
+        gamepadA = aPressed;
         const bPressed = !!(b[1] && (b[1].pressed || b[1].value > 0.5));
         if (bPressed && !prevB) tryBuy();
         prevB = bPressed;
+        gamepadB = bPressed;
         const startPressed = !!(b[9] && (b[9].pressed || b[9].value > 0.5));
         if (startPressed && !prevStart) restart();
         prevStart = startPressed;
