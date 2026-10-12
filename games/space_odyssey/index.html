@@ -1727,9 +1727,11 @@
         { face: 'front', sx: 1, tilt: 0.14 }   // 7 右下
     ];
     function dirFromVec(x, y) {
+        // 注意：DIRS / DIR_VIEW 以 0=下、6=右 为基准，
+        // 而 atan2(y,x)=0 表示正右，故需要 +6 修正这 90° 偏移
         const a = Math.atan2(y, x);
         let idx = Math.round(a / (Math.PI / 4));
-        idx = ((idx % 8) + 8) % 8;
+        idx = (((idx + 6) % 8) + 8) % 8;
         return idx;
     }
 
@@ -4386,6 +4388,8 @@
         if (!world.landing && !world.launch) drawRocketAt(scrX(world.rocket.x), scrY(world.rocket.y), world.rocket.angle, world.t, 0);
         drawPackages();
         drawOrbs();
+        // 拾取 / 射击范围圈（跟随主角，画在角色之下）
+        if (!world.landing && !world.launch) drawRangeRings(W / 2, PLAY_H / 2 + 18, world.t);
         drawBlades();
         drawBeams();
         for (let i = 0; i < world.enemies.length; i++) drawEnemy(world.enemies[i]);
