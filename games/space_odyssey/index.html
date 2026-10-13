@@ -1866,6 +1866,14 @@
         idx = (((idx + 6) % 8) + 8) % 8;
         return idx;
     }
+    // 记住最近一次朝左 / 朝右：直上直下时按它决定人物图形的左右朝向。
+    // 只要方向里带水平分量就记录（含四条斜向），这样「按住下 + 按左 → 松开左」
+    // 回到正下时仍保持朝左的姿态，不会跳回朝右。
+    function rememberFaceSide(p, idx) {
+        const ix = DIRS[idx].ix;
+        if (ix < -0.01) p.faceSide = -1;
+        else if (ix > 0.01) p.faceSide = 1;
+    }
 
     function newWorld(planetId) {
         const planet = PLANET_BY_ID[planetId];
@@ -1879,6 +1887,7 @@
             player: {
                 x: startX + 110, y: startY + 72,
                 dirIdx: 4, moveDirIdx: 4, walkPhase: 0, moving: false,
+                faceSide: 1,              // 最近一次朝左 / 朝右的姿态（1=右，-1=左）
                 hp: MAX_HP, maxHp: MAX_HP,
                 speedMul: 1, pickupMul: 1, rate: 1, bullets: 1, rockets: 0, dmg: BASE_DMG,
                 weapon: 'pistol',
@@ -2442,7 +2451,10 @@
         opts = opts || {};
         const view = DIR_VIEW[dirIdx];
         const roll = opts.roll || 0;
-        const flip = view.sx < 0 ? -1 : 1;
+        let flip = view.sx < 0 ? -1 : 1;
+        // 直上直下的两个朝向（tilt = 0）本身分不出左右，改用最近一次朝左 / 朝右的姿态，
+        // 这样从侧面转向正上正下时图形不会突然左右翻面
+        if (view.tilt === 0 && opts.faceSide) flip = opts.faceSide;
         const t = opts.t || 0;
         const bob = moving ? Math.abs(Math.sin(phase)) * 2.2 : Math.sin(t * 2.2) * 0.8;
 
@@ -3942,6 +3954,7 @@ if (view.face === 'front') {
         p.rollVY = d.iy * v;
         p.dirIdx = dirIdx;            // 滚动时朝向也同步
         p.moveDirIdx = dirIdx;
+        rememberFaceSide(p, dirIdx);
         sfx('roll');
         for (let i = 0; i < 6; i++) {
             addFx({
@@ -3968,8 +3981,9 @@ if (view.face === 'front') {
         const base = Math.atan2(ty, tx);
         // 朝向：目标大致在前方时才转身，避免边走边打出现"倒着走"
         const mv = moveVector();
-        if (!mv.x && !mv.y || (mv.x * tx + mv.y * ty) > 0) {
-            p.dirIdx = dirFromVec(tx, ty);
+if (!mv.x && !mv.y || (mv.x * tx + mv.y * ty) > 0) {
+     p.dirIdx = dirFromVec(tx, ty);
+            rememberFaceSide(p, p.dirIdx);
         }
         const isRocket = p.rockets > 0;
         const n = p.bullets;
@@ -4097,6 +4111,7 @@ if (view.face === 'front') {
             p.y = wrapVal(p.y + mv.y * sp * dt, MAP_H);
             p.dirIdx = dirFromVec(mv.x, mv.y);
             p.moveDirIdx = dirFromVec(mv.x, mv.y);
+            rememberFaceSide(p, p.dirIdx);
             p.walkPhase += dt * (8.5 * sp / BASE_SPEED);
             p.moving = true;
         }
@@ -5604,7 +5619,8 @@ if (view.face === 'front') {
             drawAstronaut(W / 2, PLAYER_CY, p.dirIdx, p.walkPhase, p.moving, {
                 t: world.t, roll: p.rollT > 0 ? 1 : 0, rollAngle: p.rollAngle,
                 rollProg: 1 - p.rollT / ROLL_TIME,
-                rocket: p.rockets > 0, pkg: world.pkg
+                rocket: p.rockets > 0, pkg: world.pkg,
+                faceSide: p.faceSide
             });
         }
         if (showHero && p.rollCd > 0 && p.rollT <= 0) {
