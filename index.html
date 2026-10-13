@@ -7,6 +7,9 @@
         <!-- CSS Includes -->
         <link rel="stylesheet" href="assets/css/styles.css" />
 
+        <!-- JS Includes -->
+        <script src="assets/js/gallery.js" defer></script>
+
         <!--[if lt IE 9]>
           <script src="http://html5shiv.googlecode.com/svn/trunk/html5.js"></script>
         <![endif]-->
@@ -17,22 +20,8 @@
 
 </div>
 
-        <td colspan="2"><div align="center"><canvas id="title-canvas" width="400" height="100"></canvas></div></td>
-        <script>
-            const canvas = document.getElementById('title-canvas');
-            const ctx = canvas.getContext('2d');
-            const gradient = ctx.createLinearGradient(0, 0, canvas.width, 0);
-            gradient.addColorStop(0, '#ff6600');
-            gradient.addColorStop(0.5, '#ffff00');
-            gradient.addColorStop(1, '#66ff66');
-            ctx.font = 'bold 60px sans-serif';
-            ctx.fillStyle = gradient;
-            ctx.textAlign = 'center';
-            ctx.shadowColor = '#ff69b4';
-            ctx.shadowBlur = 30;
-            ctx.fillText('Chuai 的主页', canvas.width / 2, 70);
-        </script>
-        
+        <td colspan="2"><div align="center"><canvas id="title-canvas" data-text="Chuai 的主页" width="400" height="100"></canvas></div></td>
+
         <ul id="gallery">
         <!-- The instagram photos will go here as <li> elements -->
         <li><a href="./pickgame/index.html" target="_blank" href="#"><img src="./homepage_pic/pickgame.png"></a></li>
@@ -45,19 +34,6 @@
         <li><a href="./timer/index.html" target="_blank" href="#"><img src="./homepage_pic/counter.jpg"></a></li>
         <li><a href="./games/index.html" target="_blank" href="#"><img src="./homepage_pic/games.png"></a></li>
         </ul>
-        
-
-        <!--
-
-        <a href="#" id="gravityButton">随便玩玩</a>
-
-        < script src="http://code.jquery.com/jquery-1.8.2.min.js"></script>
-        <script src="assets/js/jquery-1.8.2.min.js"></script>
-        <script src="assets/js/spectragram.min.js"></script>
-        <script src="assets/js/jGravity-min.js"></script>
-        <script src="assets/js/script.js"></script>
-
-        -->
         
     </body>
 </html>
