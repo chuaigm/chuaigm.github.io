@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-viewport=1.0, user-scalable=no">
-<title>太阳系奥德赛</title>
+<title>星球大冒险</title>
 <style>
     * { margin: 0; padding: 0; box-sizing: border-box; user-select: none; -webkit-user-select: none; -webkit-tap-highlight-color: transparent; }
     html, body { width: 100%; height: 100%; overflow: hidden; }
@@ -143,7 +143,7 @@
     // 拾取范围：50px（约 1.1 身位）
     const PICKUP_BASE = 50;
     const FIRE_RANGE = CHAR_H * 3.6;   // 3.6 个身位自动开火
-    const ROCKET_SCALE = 1.5;          // 星球表面火箭的放大倍率
+    const ROCKET_SCALE = 1.7;          // 星球表面火箭的放大倍率
     const ORB_HOMING_SPEED = 620;       // 经验球锁定后的追踪速度（高于玩家最大速度，保证必拾取）
     const PICKUP_TOL = 1.15;             // 实际拾取判定相对绘制圈的放大系数（抵消取整误差）
     const PKG_TIME = 10.0;               // 武器箱选择时限（秒）
@@ -1280,6 +1280,31 @@
         return c;
     }
 
+    // 地球卫星：轨道远近两半分开画，卫星本体按所在半边决定前后
+    function drawMoonOrbit(px, py, mR, front) {
+        ctx.save();
+        ctx.strokeStyle = 'rgba(190,205,225,0.18)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        if (front) ctx.ellipse(px, py, mR, mR * 0.40, 0, 0, Math.PI);
+        else ctx.ellipse(px, py, mR, mR * 0.40, 0, Math.PI, Math.PI * 2);
+        ctx.stroke();
+        ctx.restore();
+    }
+    function drawMoonDisc(mx, my) {
+        const mg = ctx.createRadialGradient(mx - 1, my - 1, 0.4, mx, my, 3.6);
+        mg.addColorStop(0, '#eef1f6');
+        mg.addColorStop(1, '#9aa2b0');
+        ctx.fillStyle = mg;
+        ctx.beginPath();
+        ctx.arc(mx, my, 3.4, 0, Math.PI * 2);
+        ctx.fill();
+    }
+    function moonState(p, t, px, py, r) {
+        const a = t * 0.5 + p.bobPh;
+        const mR = r * 2.0;
+        return { a: a, mR: mR, mx: px + Math.cos(a) * mR, my: py + Math.sin(a) * mR * 0.40 };
+    }
     function drawPlanet(p, t, highlight) {
         const r = p.r;
         const ppos = planetPos(p);
@@ -1309,6 +1334,11 @@
         }
         // 行星环背面（被星球遮挡）
         const tilt = p.ringStyle === 'uranus' ? 1.15 : (-0.38 + Math.sin(t * p.ringSp) * 0.04);
+        // 月球：远侧（画在星球之上）与近侧（画在星球之下）分开处理
+        const moon = p.id === 'earth' ? moonState(p, t, px, py, r) : null;
+        const moonFar = moon ? moon.my < py : false;
+        if (moon) drawMoonOrbit(px, py, moon.mR, false);
+        if (moon && moonFar) drawMoonDisc(moon.mx, moon.my);
         if (p.ring) {
             ctx.save();
             ctx.translate(px, py);
@@ -1325,25 +1355,9 @@
             drawPlanetRing(p, r, tilt, true);
             ctx.restore();
         }
-        // 地球卫星
-        if (p.id === 'earth') {
-            const a = t * 0.5 + p.bobPh;
-            const mR = r * 2.0;
-            const mx = px + Math.cos(a) * mR, my = py + Math.sin(a) * mR * 0.40;
-            ctx.save();
-            ctx.strokeStyle = 'rgba(190,205,225,0.18)';
-            ctx.lineWidth = 1;
-            ctx.beginPath();
-            ctx.ellipse(px, py, mR, mR * 0.40, 0, 0, Math.PI * 2);
-            ctx.stroke();
-            const mg = ctx.createRadialGradient(mx - 1, my - 1, 0.4, mx, my, 3.6);
-            mg.addColorStop(0, '#eef1f6');
-            mg.addColorStop(1, '#9aa2b0');
-            ctx.fillStyle = mg;
-            ctx.beginPath();
-            ctx.arc(mx, my, 3.4, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.restore();
+        if (moon && !moonFar) {
+            drawMoonDisc(moon.mx, moon.my);
+            drawMoonOrbit(px, py, moon.mR, true);
         }
     }
 
@@ -1428,14 +1442,16 @@
         ctx.restore();
     }
 
-    function drawOrbits(t) {
+    // 轨道：front=false 画完整椭圆（在太阳之下）；front=true 只画近侧半弧（压在太阳之上）
+    function drawOrbits(t, front) {
         ctx.save();
         ctx.strokeStyle = 'rgba(120,160,220,0.16)';
         ctx.lineWidth = 1.2;
         for (let i = 0; i < PLANETS.length; i++) {
             const p = PLANETS[i];
             ctx.beginPath();
-            ctx.ellipse(SUN.x, SUN.y, p.orbA, p.orbB, 0, 0, Math.PI * 2);
+            if (front) ctx.ellipse(SUN.x, SUN.y, p.orbA, p.orbB, 0, 0, Math.PI);
+            else ctx.ellipse(SUN.x, SUN.y, p.orbA, p.orbB, 0, 0, Math.PI * 2);
             ctx.stroke();
         }
         ctx.restore();
@@ -1470,8 +1486,9 @@
         const T = solarT;
         drawStarfield(T, 1);
         drawNebula(T);
-        drawOrbits(T);
+        drawOrbits(T, false);
         drawSun(T);
+        drawOrbits(T, true);      // 近侧轨道弧从太阳前方经过
         for (let i = 0; i < PLANETS.length; i++) {
             const p = PLANETS[i];
             drawPlanet(p, T, showShip && p.id === nearId ? 1 : 0);
@@ -1598,7 +1615,7 @@
         ctx.textBaseline = 'middle';
         setRoundFont(74);
         const tx = W / 2, ty = 84;
-        const TITLE = '太阳系奥德赛';
+        const TITLE = '星球大冒险';
         const GAP = 10;   // 字间距
         // 橘红色光晕（多层扩散）
         ctx.shadowColor = 'rgba(255,96,18,0.95)';
@@ -1797,7 +1814,7 @@
 
     // ---------- 升空镜头：从当前画面缓慢拉为远景 ----------
     const LAUNCH_ZOOM_END = 1.6;     // 拉远结束时刻
-    const LAUNCH_ZOOM_MIN = 0.74;    // 远景缩放
+    const LAUNCH_ZOOM_MIN = 0.7;     // 远景缩放（升空与着陆共用同一个值，保证两端最远视角一致）
     const LAUNCH_TRAVEL = 760;      // 火箭上升距离（缩放前的屏幕像素）
     const LAUNCH_DEPART = 0.26;     // 出画后淡出所需的额外上升进度比例
     function launchZoom(t) {
@@ -1817,9 +1834,10 @@
         return clamp((d - 1) / LAUNCH_DEPART, 0, 1);
     }
     // ---------- 着陆镜头：由远及近推回常规视角，与升空拉远对称 ----------
+    const LAND_ZOOM_DUR = 2.0;   // 远镜头推近时长，比下降段更长，收尾更从容
     function landingZoom(t) {
-        if (t >= LAND_DESCENT) return 1;
-        const k = clamp(t / LAND_DESCENT, 0, 1);
+        if (t >= LAND_ZOOM_DUR) return 1;
+        const k = clamp(t / LAND_ZOOM_DUR, 0, 1);
         return lerp(LAUNCH_ZOOM_MIN, 1, easeInOut(k));
     }
     // 着陆入场黑场的浓度（1=全黑，0=完全显现）
@@ -1831,14 +1849,14 @@
         { ix: 0, iy: -1 }, { ix: 0.7071, iy: -0.7071 }, { ix: 1, iy: 0 }, { ix: 0.7071, iy: 0.7071 }
     ];
     const DIR_VIEW = [
-        { face: 'front', sx: 1, tilt: 0 },     // 0 下
-        { face: 'front', sx: 1, tilt: -0.14 }, // 1 左下
-        { face: 'side', sx: -1, tilt: 0 },     // 2 左
-        { face: 'back', sx: 1, tilt: 0.16 },   // 3 左上
-        { face: 'back', sx: 1, tilt: 0 },      // 4 上
-        { face: 'back', sx: 1, tilt: -0.16 },  // 5 右上
-        { face: 'side', sx: 1, tilt: 0 },      // 6 右
-        { face: 'front', sx: 1, tilt: 0.14 }   // 7 右下
+        { face: 'front', sx: 1, tilt: 0 },      // 0 下
+        { face: 'front', sx: -1, tilt: 0.14 }, // 1 左下（整体镜像自 7）
+        { face: 'side', sx: -1, tilt: 0 },      // 2 左
+        { face: 'back', sx: -1, tilt: 0.16 },   // 3 左上（整体镜像自 5）
+        { face: 'back', sx: 1, tilt: 0 },       // 4 上
+        { face: 'back', sx: 1, tilt: 0.16 },    // 5 右上
+        { face: 'side', sx: 1, tilt: 0 },       // 6 右
+        { face: 'front', sx: 1, tilt: 0.14 }    // 7 右下
     ];
     function dirFromVec(x, y) {
         // 注意：DIRS / DIR_VIEW 以 0=下、6=右 为基准，
@@ -1883,6 +1901,19 @@
     }
 
     // ==================== 地形绘制 ====================
+    // 地面景物（树 / 建筑 / 纪念碑 / 火箭）按世界 y 排序，形成前后遮挡
+    // 注意：主角的遮挡基准一律取「脚的位置」（world.player.y），不是人物图形的中心
+    let groundProps = [];
+    function playerFeetY() { return world.player.y; }
+    function drawGroundProps(front) {
+        if (!front) groundProps.sort((a, b) => a.wy - b.wy);
+        const py = playerFeetY();
+        for (let i = 0; i < groundProps.length; i++) {
+            const o = groundProps[i];
+            if ((o.wy >= py) !== front) continue;
+            o.draw();
+        }
+    }
     function drawGround() {
         const p = world.planet;
         const cam = world.cam;
@@ -1894,6 +1925,7 @@
         const hDn = (H - cy) / vz + TILE;        // 下半高（画布比 PLAY_H 高）
         ctx.fillStyle = p.ground;
         ctx.fillRect(cx - hw, cy - hUp, hw * 2, hUp + hDn);
+        groundProps.length = 0;
         const tx0 = Math.floor((cam.x - hw) / TILE) - 1;
         const tx1 = Math.ceil((cam.x + hw) / TILE) + 1;
         const ty0 = Math.floor((cam.y - hUp) / TILE) - 1;
@@ -1908,6 +1940,216 @@
             }
         }
     }
+    // ---------------- 树木 ----------------
+    // 四种树形：阔叶 / 针叶 / 棕榈 / 秋色（花树），带树干纹理、三层树冠与随风摆动
+    function drawTreeProp(wx, wy, seed, t) {
+        const x = scrX(wx), y = scrY(wy);
+        const m = 260;
+        if (x < -m || x > W + m || y < -m || y > PLAY_H + m) return;
+        const s = 1.2 + hash2(seed * 2.3, seed * 5.1) * 0.45;
+        const kind = Math.floor(hash2(seed * 3.7 + 1.1, seed * 1.9) * 4);
+        const sway = Math.sin(t * 0.85 + seed * 2.3) * 0.032;
+        // 地面投影：外淡内浓两层
+        ctx.fillStyle = 'rgba(0,0,0,0.10)';
+        ctx.beginPath();
+        ctx.ellipse(x + 15 * s, y + 7 * s, 40 * s, 16 * s, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = 'rgba(0,0,0,0.15)';
+        ctx.beginPath();
+        ctx.ellipse(x + 8 * s, y + 5 * s, 26 * s, 10 * s, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.save();
+        ctx.translate(x, y);
+        ctx.rotate(sway);
+        ctx.scale(s, s);
+        if (kind === 1) treePine(seed);
+        else if (kind === 2) treePalm(seed, t);
+        else treeBroad(seed, kind === 3);
+        ctx.restore();
+    }
+    function treeTrunk(w, top, seed) {
+        // 树干：上窄下宽 + 树皮纹 + 根部外扩
+        ctx.fillStyle = '#6b4a2b';
+        ctx.beginPath();
+        ctx.moveTo(-w, 0);
+        ctx.quadraticCurveTo(-w * 0.72, -top * 0.55, -w * 0.55, -top);
+        ctx.lineTo(w * 0.55, -top);
+        ctx.quadraticCurveTo(w * 0.72, -top * 0.55, w, 0);
+        ctx.closePath();
+        ctx.fill();
+        ctx.fillStyle = '#5a3d22';
+        ctx.beginPath();
+        ctx.moveTo(0, 0);
+        ctx.quadraticCurveTo(w * 0.3, -top * 0.5, w * 0.55, -top);
+        ctx.lineTo(w, 0);
+        ctx.closePath();
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(40,26,14,0.5)';
+        ctx.lineWidth = 1.2;
+        for (let i = 0; i < 3; i++) {
+            const yy = -top * (0.18 + i * 0.26) - hash2(seed + i, seed * 2) * 3;
+            ctx.beginPath();
+            ctx.moveTo(-w * 0.5 + i, yy);
+            ctx.lineTo(-w * 0.15 + i * 1.6, yy - 2.5);
+            ctx.stroke();
+        }
+        ctx.fillStyle = 'rgba(255,255,255,0.14)';      // 左侧受光
+        ctx.beginPath();
+        ctx.moveTo(-w * 0.85, -2);
+        ctx.quadraticCurveTo(-w * 0.6, -top * 0.55, -w * 0.42, -top * 0.92);
+        ctx.lineTo(-w * 0.2, -top * 0.9);
+        ctx.quadraticCurveTo(-w * 0.38, -top * 0.5, -w * 0.5, -2);
+        ctx.closePath();
+        ctx.fill();
+    }
+    function treeBroad(seed, autumn) {
+        const top = 44;
+        treeTrunk(5.5, top, seed);
+        // 枝干
+        ctx.strokeStyle = '#6b4a2b';
+        ctx.lineWidth = 3.4;
+        ctx.lineCap = 'round';
+        for (let i = 0; i < 3; i++) {
+            const a = -2.5 + i * 0.75 + hash2(seed + i, 3) * 0.3;
+            ctx.beginPath();
+            ctx.moveTo(0, -top * 0.82);
+            ctx.lineTo(Math.cos(a) * 15, -top * 0.82 + Math.sin(a) * 13);
+            ctx.stroke();
+        }
+        const dk = autumn ? '#9a5a22' : '#2c6034';
+        const md = autumn ? '#c87a2c' : '#3d7f3f';
+        const lt = autumn ? '#e8a94a' : '#57a04c';
+        // 底层树冠
+        const blobs = 6;
+        for (let i = 0; i < blobs; i++) {
+            const a = (i / blobs) * Math.PI * 2 + seed;
+            const r = 15 + hash2(seed + i * 2.7, i) * 7;
+            ctx.fillStyle = dk;
+            ctx.beginPath();
+            ctx.arc(Math.cos(a) * 17, -top - 8 + Math.sin(a) * 11, r, 0, Math.PI * 2);
+            ctx.fill();
+        }
+        // 中层
+        for (let i = 0; i < 5; i++) {
+            const a = (i / 5) * Math.PI * 2 + seed * 1.7;
+            ctx.fillStyle = md;
+            ctx.beginPath();
+            ctx.arc(Math.cos(a) * 13, -top - 13 + Math.sin(a) * 9, 12 + hash2(seed + i, 7) * 4, 0, Math.PI * 2);
+            ctx.fill();
+        }
+        // 顶层高光 + 边缘叶簇
+        ctx.fillStyle = lt;
+        ctx.beginPath();
+        ctx.arc(-7, -top - 18, 10, 0, Math.PI * 2);
+        ctx.arc(5, -top - 15, 7, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = md;
+        for (let i = 0; i < 5; i++) {
+            const a = (i / 5) * Math.PI * 2 + 0.6;
+            ctx.beginPath();
+            ctx.arc(Math.cos(a) * 24, -top - 8 + Math.sin(a) * 16, 5.5, 0, Math.PI * 2);
+            ctx.fill();
+        }
+        if (autumn) {                                   // 花果点缀
+            ctx.fillStyle = '#e8556d';
+            for (let i = 0; i < 6; i++) {
+                const a = hash2(seed + i * 5.3, i * 2.1) * Math.PI * 2;
+                const rr = 6 + hash2(i, seed) * 18;
+                ctx.beginPath();
+                ctx.arc(Math.cos(a) * rr, -top - 10 + Math.sin(a) * rr * 0.6, 2.2, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        }
+    }
+    function treePine(seed) {
+        const top = 74;
+        treeTrunk(4.6, top, seed);
+        const tiers = 4;
+        for (let i = 0; i < tiers; i++) {
+            const k = i / (tiers - 1);
+            const y = -16 - i * 15;
+            const w = 27 - i * 5;
+            ctx.fillStyle = '#2a5c33';
+            ctx.beginPath();
+            ctx.moveTo(-w, y);
+            ctx.quadraticCurveTo(-w * 0.5, y - 10, 0, y - 22);
+            ctx.quadraticCurveTo(w * 0.5, y - 10, w, y);
+            ctx.closePath();
+            ctx.fill();
+            ctx.fillStyle = '#3c7a41';
+            ctx.beginPath();
+            ctx.moveTo(-w * 0.92, y - 1);
+            ctx.quadraticCurveTo(-w * 0.5, y - 9, -2, y - 19);
+            ctx.lineTo(-6, y - 8);
+            ctx.closePath();
+            ctx.fill();
+            ctx.strokeStyle = 'rgba(20,48,26,0.5)';
+            ctx.lineWidth = 1;
+            for (let j = 0; j < 3; j++) {
+                const yy = y - 4 - j * 5;
+                ctx.beginPath();
+                ctx.moveTo(-w * (0.72 - j * 0.16), yy);
+                ctx.lineTo(w * (0.72 - j * 0.16), yy);
+                ctx.stroke();
+            }
+        }
+        ctx.fillStyle = '#4c8f4a';
+        ctx.beginPath();
+        ctx.moveTo(0, -top - 4);
+        ctx.lineTo(3.4, -top + 8);
+        ctx.lineTo(-3.4, -top + 8);
+        ctx.closePath();
+        ctx.fill();
+    }
+    function treePalm(seed, t) {
+        const top = 62;
+        const bend = (hash2(seed, 3) - 0.5) * 10;
+        // 弯曲树干 + 环节
+        ctx.strokeStyle = '#8a6b45';
+        ctx.lineWidth = 7;
+        ctx.lineCap = 'round';
+        ctx.beginPath();
+        ctx.moveTo(0, 0);
+        ctx.quadraticCurveTo(bend * 0.6, -top * 0.5, bend, -top);
+        ctx.stroke();
+        ctx.strokeStyle = 'rgba(60,42,22,0.55)';
+        ctx.lineWidth = 1.4;
+        for (let i = 1; i < 7; i++) {
+            const k = i / 7;
+            const px = bend * 0.6 * 2 * k * (1 - k) * 2 + bend * k * k;
+            const py = -top * k;
+            ctx.beginPath();
+            ctx.moveTo(px - 3.4, py); ctx.lineTo(px + 3.4, py);
+            ctx.stroke();
+        }
+        // 叶片
+        const n = 7;
+        for (let i = 0; i < n; i++) {
+            const a = -Math.PI * 0.92 + (i / (n - 1)) * Math.PI * 0.84 + Math.sin(t * 1.1 + seed + i) * 0.04;
+            const L = 34 + hash2(seed + i, i * 3) * 10;
+            ctx.save();
+            ctx.translate(bend, -top);
+            ctx.rotate(a);
+            ctx.fillStyle = i % 2 ? '#3f8a43' : '#2f6f38';
+            ctx.beginPath();
+            ctx.moveTo(0, 0);
+            ctx.quadraticCurveTo(L * 0.55, -6.5, L, 2.5);
+            ctx.quadraticCurveTo(L * 0.5, 5.5, 0, 0);
+            ctx.closePath();
+            ctx.fill();
+            ctx.strokeStyle = 'rgba(22,54,28,0.5)';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.moveTo(1, 0.5); ctx.lineTo(L - 2, 1.4);
+            ctx.stroke();
+            ctx.restore();
+        }
+        ctx.fillStyle = '#8a6b45';
+        ctx.beginPath();
+        ctx.arc(bend, -top, 3.4, 0, Math.PI * 2);
+        ctx.fill();
+    }
+
     function drawDecorTile(p, tx, ty, sx, sy, h, t) {
         const T = TILE;
         switch (p.decor) {
@@ -1959,24 +2201,12 @@
             }
             case 'grass': {
                 if (h > 0.62) {
-                    const cx = sx + T * 0.5, cy = sy + T * 0.55;
-                    const s = 0.85 + h * 0.5;
-                    ctx.fillStyle = 'rgba(0,0,0,0.18)';
-                    ctx.beginPath();
-                    ctx.ellipse(cx + 6, cy + 4, 22 * s, 9 * s, 0, 0, Math.PI * 2);
-                    ctx.fill();
-                    ctx.fillStyle = '#6b4a2b';
-                    ctx.fillRect(cx - 5 * s, cy - 26 * s, 10 * s, 28 * s);
-                    ctx.fillStyle = '#2f6b32';
-                    ctx.beginPath();
-                    ctx.arc(cx, cy - 42 * s, 22 * s, 0, Math.PI * 2);
-                    ctx.arc(cx - 15 * s, cy - 28 * s, 15 * s, 0, Math.PI * 2);
-                    ctx.arc(cx + 15 * s, cy - 28 * s, 15 * s, 0, Math.PI * 2);
-                    ctx.fill();
-                    ctx.fillStyle = '#438a3f';
-                    ctx.beginPath();
-                    ctx.arc(cx - 5 * s, cy - 47 * s, 12 * s, 0, Math.PI * 2);
-                    ctx.fill();
+                    const twx = wrapVal(tx * TILE + 28 + hash2(tx * 5, ty * 3) * (T - 56), MAP_W);
+                    const twy = wrapVal(ty * TILE + 46 + hash2(tx * 9, ty * 7) * (T - 80), MAP_H);
+                    if (!treeBlocked(twx, twy)) {          // 已有绘图的范围不种树
+                        const seed = hash2(tx * 2.9, ty * 4.3);
+                        groundProps.push({ wy: twy, draw: (function (a, b, c) { return function () { drawTreeProp(a, b, c, t); }; })(twx, twy, seed) });
+                    }
                 } else if (h < 0.22) {
                     ctx.strokeStyle = 'rgba(150,215,120,0.35)';
                     ctx.lineWidth = 2;
@@ -2138,185 +2368,305 @@
     }
 
     // ==================== 主角绘制（八方向） ====================
+    const TAU = Math.PI * 2;
+
+    // 腿部运动学参数：每个朝向给出「迈步」在屏幕上的投影
+    //  hipX  两腿静止时的水平间距      ax/ay  迈步方向的屏幕分量（ay>0 ＝朝画面下方＝更靠近镜头）
+    //  lift  摆动腿的抬起高度            depth  迈步时的透视缩放
+    //  far   该视角下处于远端的腿（-1 表示正/背面，无需区分远近）
+    //  tilt  鞋子的最大翘起角度（侧身迈步幅度大，鞋子压得更平）
+    //  up    鞋头固定角度（负＝鞋头上扬，正＝鞋头下压；背向迈步上扬、朝镜头迈步下压）
+    // 左下 / 左上 整幅镜像自右下 / 右上，因此直接复用其参数
+    const LEG_VIEW = [
+        { hipX: 6.2, ax: 0.62, ay: 0.72, lift: 6, depth: 0.28, far: -1, tilt: 0.14, up: 0.16 },   // 0 下
+        { hipX: 5.4, ax: 0.78, ay: 0.62, lift: 6.4, depth: 0.26, far: -1, tilt: 0.14, up: 0.16 }, // 1 左下＝镜像 7
+        { hipX: 2.8, ax: 1.00, ay: 0.18, lift: 7, depth: 0.38, far: 1, tilt: 0.05, up: 0 },        // 2 左
+        { hipX: 4.9, ax: 0.72, ay: -0.68, lift: 5.6, depth: -0.24, far: -1, tilt: 0.14, up: -0.26 }, // 3 左上＝镜像 5
+        { hipX: 5.8, ax: 0.6, ay: -0.8, lift: 5.2, depth: -0.26, far: -1, tilt: 0.14, up: -0.27 },  // 4 上
+        { hipX: 4.9, ax: 0.72, ay: -0.68, lift: 5.6, depth: -0.24, far: -1, tilt: 0.14, up: -0.26 }, // 5 右上
+        { hipX: 2.8, ax: 1.00, ay: 0.18, lift: 7, depth: 0.38, far: 1, tilt: 0.05, up: 0 },        // 6 右
+        { hipX: 5.4, ax: 0.78, ay: 0.62, lift: 6.4, depth: 0.26, far: -1, tilt: 0.14, up: 0.16 }  // 7 右下
+    ];
+
+    // 单腿步态：f 为迈步量（-1 在身后 / +1 在身前），up 为抬腿高度
+    // 前 62% 是支撑期（脚贴地由身前滑到身后），后 38% 是摆动期（收腿抬脚再迈出）
+    function legCycle(ph) {
+        const STANCE = 0.62;
+        if (ph < STANCE) {
+            const k = ph / STANCE;
+            return { f: 1 - 2 * k, up: 0 };
+        }
+        const k = (ph - STANCE) / (1 - STANCE);
+        return { f: -1 + 2 * k, up: Math.sin(k * Math.PI) };
+    }
+
+    // 解算一条腿的髋 / 膝 / 脚，并按「越靠近镜头越大」做透视缩放
+    function solveLeg(cfg, cyc, hipX, hipY, stride) {
+        const len = Math.hypot(cfg.ax, cfg.ay) || 1;
+        const nx = cfg.ax / len, ny = cfg.ay / len;
+        const footX = hipX + cyc.f * stride * cfg.ax;
+        const footY = -cyc.up * cfg.lift + cyc.f * stride * cfg.ay;
+        const bend = 1.0 + 5.4 * cyc.up;      // 摆动期膝盖明显前屈，支撑期几乎伸直
+        return {
+            hipX: hipX, hipY: hipY,
+            kneeX: (hipX + footX) * 0.5 + bend * nx,
+            kneeY: (hipY + footY) * 0.5 - (0.6 + 2.8 * cyc.up),
+            footX: footX, footY: footY,
+            sc: 1 + cyc.f * cfg.depth * 0.35,
+            near: cyc.f * cfg.ay                  // 越大＝脚越靠画面下方＝越靠近镜头
+        };
+    }
+
+    // 眨眼：约每 3.7 秒眨一次，其中一轮会连眨两下
+    function blinkAmt(t) {
+        const p = t % 3.7;
+        if (p < 0.15) return Math.sin(p / 0.15 * Math.PI);
+        if (p > 0.44 && p < 0.59) return Math.sin((p - 0.44) / 0.15 * Math.PI);
+        return 0;
+    }
+
+    // 眼睛：正面双眼与侧面单眼共用同一套表现，眨眼时上下压扁成缝
+    // eyes 每项为 [x, y, 横向半径, 纵向缩放]
+    function drawEyes(t, eyes) {
+        const eh = Math.max(0.2, 1.7 * (1 - blinkAmt(t)));
+        ctx.fillStyle = '#ffffff';
+        for (let i = 0; i < eyes.length; i++) {
+            const e = eyes[i];
+            ctx.beginPath();
+            ctx.ellipse(e[0], e[1], e[2], Math.max(0.2, eh * e[3]), 0, 0, Math.PI * 2);
+            ctx.fill();
+        }
+    }
+
     function drawAstronaut(px, py, dirIdx, phase, moving, opts) {
         opts = opts || {};
         const view = DIR_VIEW[dirIdx];
         const roll = opts.roll || 0;
         const flip = view.sx < 0 ? -1 : 1;
-        const sw = moving ? Math.sin(phase) : 0;
-        const sw2 = moving ? Math.sin(phase + Math.PI) : 0;
-        const bob = moving ? Math.abs(Math.sin(phase)) * 2.2 : Math.sin(opts.t * 2.2) * 0.8;
+        const t = opts.t || 0;
+        const bob = moving ? Math.abs(Math.sin(phase)) * 2.2 : Math.sin(t * 2.2) * 0.8;
 
         ctx.save();
         ctx.translate(px, py);
 
+        // 翻滚：整体蜷成球状，球心与身形中心（BODY_OFF）重合，不再旋转站姿图形
+        if (roll > 0) {
+            drawRollBall(0, -BODY_OFF, dirIdx, opts);
+            ctx.restore();
+            if (opts.pkg) drawPkgRing(px, py, t);
+            return;
+        }
+
         // 影子
         ctx.save();
-        ctx.globalAlpha = 0.28 - roll * 0.1;
+        ctx.globalAlpha = 0.28;
         ctx.fillStyle = '#000000';
         ctx.beginPath();
-        ctx.ellipse(3, 2 - roll * 6, 15 - roll * 3, 5.5 - roll, 0, 0, Math.PI * 2);
+        ctx.ellipse(3, 2, 15, 5.5, 0, 0, Math.PI * 2);
         ctx.fill();
         ctx.restore();
 
-        if (roll > 0) {
-            ctx.rotate(opts.rollAngle);
-            ctx.scale(0.92, 0.92);
-        }
-        const bodyY = -bob - roll * 4;
-
-        // 腿部姿势
-        let fL, fR, legLift = 0;
-        switch (dirIdx) {
-            case 0: // 向下
-                fL = { x: -7 - sw * 8, y: -Math.max(0, sw) * 7 };
-                fR = { x: 7 + sw * 8, y: -Math.max(0, sw2) * 7 };
-                break;
-            case 4: // 向上
-                fL = { x: -6 + sw * 5, y: -Math.max(0, sw) * 5 };
-                fR = { x: 6 + sw * 5, y: -Math.max(0, sw2) * 5 };
-                legLift = 2;
-                break;
-            case 2: case 6: { // 左右
-                const s = dirIdx === 6 ? 1 : -1;
-                fL = { x: s * (-4 + sw * 12), y: -Math.max(0, sw) * 8 };
-                fR = { x: s * (-4 + sw2 * 12), y: -Math.max(0, sw2) * 8 };
-                break;
-            }
-            case 1: case 7: { // 左下 / 右下
-                const s = dirIdx === 7 ? 1 : -1;
-                fL = { x: -6 * s + sw * 9 * s, y: -Math.max(0, sw) * 8 };
-                fR = { x: 6 * s + sw * 9 * s, y: -Math.max(0, sw2) * 8 };
-                break;
-            }
-            default: { // 3 / 5 上斜
-                const s = dirIdx === 5 ? 1 : -1;
-                fL = { x: -6 * s + sw * 6 * s, y: -Math.max(0, sw) * 5 };
-                fR = { x: 6 * s + sw * 6 * s, y: -Math.max(0, sw2) * 5 };
-                legLift = 2;
-                break;
-            }
-        }
-        if (roll > 0) {
-            fL = { x: -5, y: -5 };
-            fR = { x: 6, y: -6 };
-        }
+        const bodyY = -bob;
 
         ctx.save();
         ctx.scale(flip, 1);
         ctx.rotate(view.tilt * 0.5);
 
-        const suit = '#e9eef6', suitDark = '#b9c3d4', suitLine = '#8e99ad';
-        const bootC = '#e0563f';
-
-        // 腿
+        // 腿：两条腿相差半个周期，远端那条先画并压暗
+        const cfg = LEG_VIEW[dirIdx];
+        const hipY = bodyY - 26;
+        const stride = moving ? 9.6 : 2.2;
+        const legs = [];
         for (let i = 0; i < 2; i++) {
-            const f = i === 0 ? fL : fR;
-            const hx = i === 0 ? -5 : 5;
-            const hy = bodyY - 24;
-            const kx = (hx + f.x) / 2, ky = (hy + f.y) / 2 - 2;
-            ctx.strokeStyle = suit;
-            ctx.lineWidth = 9;
-            ctx.lineCap = 'round';
-            ctx.beginPath();
-            ctx.moveTo(hx, hy);
-            ctx.lineTo(kx, ky);
-            ctx.lineTo(f.x, f.y - 3);
-            ctx.stroke();
-            ctx.strokeStyle = suitLine;
-            ctx.lineWidth = 9;
-            ctx.globalAlpha = 0.35;
-            ctx.beginPath();
-            ctx.moveTo(hx, hy + 3);
-            ctx.lineTo(kx, ky + 3);
-            ctx.stroke();
-            ctx.globalAlpha = 1;
-            ctx.fillStyle = bootC;
-            ctx.beginPath();
-            ctx.ellipse(f.x + (roll > 0 ? 0 : 1), f.y, 7, 4.4, 0, 0, Math.PI * 2);
-            ctx.fill();
+            const ph = moving ? ((phase / TAU + i * 0.5) % 1) : (0.06 + i * 0.5);
+            legs.push(solveLeg(cfg, legCycle(ph), i === 0 ? -cfg.hipX : cfg.hipX, hipY, stride));
         }
-
-        // 背包（背面视角）
-        if (view.face === 'back') {
-            ctx.fillStyle = '#9aa6ba';
-            roundRectPath(-13, bodyY - 44 + legLift, 26, 22, 7);
-            ctx.fill();
-            ctx.fillStyle = '#7d8a9e';
-            ctx.fillRect(-8, bodyY - 40 + legLift, 16, 4);
-            ctx.fillStyle = '#6fd3ff';
-            ctx.beginPath();
-            ctx.arc(-6, bodyY - 22 + legLift, 2.6, 0, Math.PI * 2);
-            ctx.arc(6, bodyY - 22 + legLift, 2.6, 0, Math.PI * 2);
-            ctx.fill();
-        }
-
-        // 躯干
-        ctx.fillStyle = suit;
-        roundRectPath(-13, bodyY - 46 + legLift, 26, 25, 9);
-        ctx.fill();
-        ctx.fillStyle = 'rgba(140,155,180,0.55)';
-        roundRectPath(-13, bodyY - 30 + legLift, 26, 7, 4);
-        ctx.fill();
-        ctx.fillStyle = '#5b8def';
-        roundRectPath(-5, bodyY - 38 + legLift, 10, 8, 3);
-        ctx.fill();
-        if (view.face !== 'back') {
-            ctx.fillStyle = '#3a4a63';
-            roundRectPath(-13, bodyY - 34 + legLift, 26, 5, 2.5);
-            ctx.fill();
-        }
-
-        // 手臂 + 枪
-        const gunUp = view.face === 'back';
-        let armA, armB;
-        if (moving) {
-            armA = { x: 11 + sw * 6, y: bodyY - 26 + Math.abs(sw) * 3 };
-            armB = { x: 11 - sw * 4, y: bodyY - 30 + Math.abs(sw2) * 2 };
+        // 图层关系：靠镜头的那条腿压在上面
+        // 侧身视角两条腿重叠，由 far 指定前后；其余视角按脚的高低（越靠下越近）决定
+        let order;
+        if (cfg.far >= 0) {
+            order = [cfg.far, 1 - cfg.far];
         } else {
-            armA = { x: 11, y: bodyY - 25 };
-            armB = { x: 9, y: bodyY - 30 };
+            order = legs[1].near < legs[0].near ? [1, 0] : [0, 1];
         }
-        if (view.face === 'back') { armA = { x: 10, y: bodyY - 26 }; armB = { x: 8, y: bodyY - 30 }; }
-        const drawArm = (a, w) => {
-            ctx.strokeStyle = suit;
-            ctx.lineWidth = w;
-            ctx.lineCap = 'round';
-            ctx.beginPath();
-            ctx.moveTo(9, bodyY - 42 + legLift);
-            ctx.lineTo((9 + a.x) / 2 + 4, (bodyY - 34 + a.y) / 2 + 3);
-            ctx.lineTo(a.x, a.y);
-            ctx.stroke();
-            ctx.fillStyle = '#8e99ad';
-            ctx.beginPath();
-            ctx.arc(a.x, a.y, w * 0.62, 0, Math.PI * 2);
-            ctx.fill();
-        };
-        if (gunUp) { drawArm(armB, 7); drawArm(armA, 7); } else { drawArm(armA, 7); drawArm(armB, 7); }
+        for (let oi = 0; oi < order.length; oi++) {
+            const far = cfg.far >= 0 && order[oi] === cfg.far;
+            drawLeg(legs[order[oi]], far, cfg.tilt, cfg.up);
+        }
 
-        // 枪
-        const gx = (armA.x + armB.x) / 2 + 4;
-        const gy = (armA.y + armB.y) / 2 + (view.face === 'front' ? 6 : -2);
+        // 背包（背面视角，画在躯干之下）
+        const bT = bodyY - 46, bH = 26;          // 躯干外框
+        if (view.face === 'back') {
+            ctx.fillStyle = '#8e9cb2';
+            roundRectPath(-15.5, bT - 1, 31, 27, 10);
+            ctx.fill();
+            ctx.fillStyle = '#a9b5c7';
+            roundRectPath(-13, bT - 5, 9.5, 23, 4.5);
+            ctx.fill();
+            roundRectPath(3.5, bT - 5, 9.5, 23, 4.5);
+            ctx.fill();
+            ctx.fillStyle = 'rgba(58,74,99,0.35)';
+            roundRectPath(-13, bT + 5, 9.5, 3.5, 1.6);
+            ctx.fill();
+            roundRectPath(3.5, bT + 5, 9.5, 3.5, 1.6);
+            ctx.fill();
+            // 背部散热格栅
+            ctx.fillStyle = '#77859b';
+            for (let i = 0; i < 3; i++) {
+                roundRectPath(-8, bT + 11 + i * 3.4, 16, 2, 1);
+                ctx.fill();
+            }
+            // 推进喷口微光
+            const pz = 0.5 + 0.5 * Math.sin(t * 7);
+            ctx.fillStyle = 'rgba(120,220,255,' + (0.35 + 0.4 * pz) + ')';
+            ctx.beginPath();
+            ctx.arc(-8.5, bT + 24, 2.4, 0, TAU);
+            ctx.arc(8.5, bT + 24, 2.4, 0, TAU);
+            ctx.fill();
+            // 天线
+            ctx.strokeStyle = '#9aa6ba';
+            ctx.lineWidth = 1.6;
+            ctx.beginPath();
+            ctx.moveTo(0, bT - 4);
+            ctx.lineTo(2.5, bT - 15);
+            ctx.stroke();
+            ctx.fillStyle = '#ff6b6b';
+            ctx.beginPath();
+            ctx.arc(2.5, bT - 16, 2.1, 0, TAU);
+            ctx.fill();
+        }
+
+        // 躯干 + 肩甲（侧身视角横向压窄，符合透视）
         ctx.save();
-        ctx.translate(gx, gy);
-        if (view.face === 'front') ctx.rotate(0.5);
-        else if (view.face === 'back') ctx.rotate(-2.6);
-        ctx.fillStyle = '#43506b';
-        roundRectPath(-3, -4, 22, 8, 3);
-        ctx.fill();
-        ctx.fillStyle = '#6f7f9c';
-        roundRectPath(13, -2.6, 10, 5.2, 2);
-        ctx.fill();
-        ctx.fillStyle = opts.rocket ? '#ff9a3d' : '#7fe8ff';
+        if (view.face === 'side') ctx.scale(0.78, 1);
+        ctx.fillStyle = '#f6f9ff';
+        ctx.strokeStyle = 'rgba(126,144,172,0.55)';
+        ctx.lineWidth = 1.1;
         ctx.beginPath();
-        ctx.arc(20, 0, 2.4, 0, Math.PI * 2);
+        ctx.ellipse(-11.8, bT + 4.5, 4.2, 5.4, -0.35, 0, TAU);
         ctx.fill();
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.ellipse(11.8, bT + 4.5, 4.2, 5.4, 0.35, 0, TAU);
+        ctx.fill();
+        ctx.stroke();
+        const bGrad = ctx.createLinearGradient(-13.5, bT, 13.5, bT + bH);
+        bGrad.addColorStop(0, '#ffffff');
+        bGrad.addColorStop(0.45, '#eef3fa');
+        bGrad.addColorStop(1, '#b3bfd2');
+        ctx.fillStyle = bGrad;
+        roundRectPath(-13.5, bT, 27, bH, 11);
+        ctx.fill();
+        // 颈环：头盔与躯干之间加一圈压边，让衔接自然（画在肩甲之下）
+        ctx.fillStyle = '#b7c2d4';
+        ctx.beginPath();
+        ctx.ellipse(0, bT + 1.4, 14.6, 5.6, 0, 0, TAU);
+        ctx.fill();
+        ctx.fillStyle = '#94a1b6';
+        ctx.beginPath();
+        ctx.ellipse(0, bT + 0.2, 11, 3.6, 0, 0, TAU);
+        ctx.fill();
+        ctx.fillStyle = '#7f8da3';
+        ctx.beginPath();
+        ctx.ellipse(0, bT - 0.6, 8.2, 2.4, 0, 0, TAU);
+        ctx.fill();
+        // 腰部束带
+        ctx.fillStyle = '#aeb9cb';
+        roundRectPath(-12.5, bT + bH - 8, 25, 6.5, 3.2);
+        ctx.fill();
+        ctx.fillStyle = '#e0563f';
+        roundRectPath(-11, bT + bH - 7.2, 22, 2.4, 1.2);
+        ctx.fill();
+        // 腰带扣
+        ctx.fillStyle = '#8794a8';
+        roundRectPath(-2.6, bT + bH - 8.6, 5.2, 7.6, 1.8);
+        ctx.fill();
+        // 肩部接缝
+        ctx.strokeStyle = 'rgba(120,138,166,0.5)';
+        ctx.lineWidth = 1.1;
+        ctx.beginPath();
+        ctx.moveTo(-8.5, bT + 1.5); ctx.quadraticCurveTo(-12.5, bT + 5, -12, bT + 10);
+        ctx.moveTo(8.5, bT + 1.5); ctx.quadraticCurveTo(12.5, bT + 5, 12, bT + 10);
+        ctx.stroke();
+        if (view.face === 'front') {
+            // 胸口控制面板
+            ctx.fillStyle = '#5b8def';
+            roundRectPath(-7, bT + 5, 14, 10, 3.2);
+            ctx.fill();
+            ctx.fillStyle = '#27364c';
+            roundRectPath(-5.4, bT + 6.4, 10.8, 7, 2.2);
+            ctx.fill();
+            ctx.fillStyle = 'rgba(120,225,255,' + (0.45 + 0.45 * Math.sin(t * 4.5)) + ')';
+            roundRectPath(-3.8, bT + 8, 7.6, 3.2, 1.6);
+            ctx.fill();
+            // 胸前警示条
+            ctx.fillStyle = '#e0563f';
+            roundRectPath(-11.5, bT + 17.5, 23, 2.3, 1.15);
+            ctx.fill();
+        } else if (view.face === 'side') {
+            ctx.fillStyle = '#5b8def';
+            roundRectPath(1, bT + 6, 9, 9, 3);
+            ctx.fill();
+            ctx.fillStyle = '#27364c';
+            roundRectPath(2.2, bT + 7.4, 6.6, 6.2, 2);
+            ctx.fill();
+            ctx.fillStyle = 'rgba(120,225,255,' + (0.45 + 0.45 * Math.sin(t * 4.5)) + ')';
+            roundRectPath(3.4, bT + 8.8, 4.8, 3, 1.5);
+            ctx.fill();
+            ctx.fillStyle = '#e0563f';
+            roundRectPath(-9, bT + 17.5, 16, 2.3, 1.15);
+            ctx.fill();
+        } else {
+            ctx.fillStyle = 'rgba(120,138,166,0.35)';
+            roundRectPath(-9, bT + 7, 18, 7, 3);
+            ctx.fill();
+            ctx.fillStyle = '#5b8def';
+            roundRectPath(-9, bT + 7, 6, 7, 2.4);
+            ctx.fill();
+            roundRectPath(3, bT + 7, 6, 7, 2.4);
+            ctx.fill();
+        }
         ctx.restore();
 
-        // 头盔
+        // 手臂与持枪：三种视角各取所需 —— 正面只画右臂持枪和枪后露出的左大臂，
+        // 背面只画两条大臂和胸前探出的枪头，侧身只画右臂与侧视的枪
+        const tipC = opts.rocket ? '#ff9a3d' : '#7fe8ff';
+        const sw = moving ? Math.sin(phase) : 0;
+        if (view.face === 'front') {
+            // 左臂：大臂加一小截前臂，后半段被枪身挡住，只露出大臂
+            limb([[11.8, bT + 4.5], [14.6, bT + 11.4], [11.4, bT + 12.6]], 7.4, ARM_TONE);
+            // 能量步枪斜跨胸前，枪口朝前下方，越过左臂肘部
+            drawRifle(-2 + sw * 1.1, bT + 2 - Math.abs(sw) * 1.2, 0.56 + sw * 0.05, 22, tipC);
+            // 右臂：弯曲到胸前握住枪身
+            limb([[-11.8, bT + 4.5], [-12.8, bT + 12.4], [-2.2, bT + 6.4]], 7.8, ARM_TONE);
+            ctx.fillStyle = ARM_GLOVE;
+            ctx.beginPath();
+            ctx.arc(-2.5, bT + 5.4, 3.6, 0, TAU);
+            ctx.fill();
+        } else if (view.face === 'back') {
+            // 背面只见两条大臂，压在躯干里的部分不留边界线；其余部分被身体挡住
+            const bw = sw * 2.1;
+            limbBlended([[-11.8, bT + 4.5 + sw * 1.3], [-14.4, bT + 12 + bw]], 7.4, ARM_TONE_BACK, bT, bH);
+            limbBlended([[11.8, bT + 4.5 - sw * 1.3], [14.4, bT + 12 - bw]], 7.4, ARM_TONE_BACK, bT, bH);
+            // 枪在身前，从右肩后方探出一截枪头
+            drawGunTip(8.5, bT - 3, -0.5, tipC);
+        } else {
+            // 侧身：近镜头一侧的右臂，与正对前方的枪（整体跟随躯干压窄）
+            ctx.save();
+            ctx.scale(0.82, 1);
+            limb([[10.4, bT + 5.5], [14.2, bT + 15.5 + sw * 2.2], [18.2, bT + 9.5]], 7.6, ARM_TONE);
+            drawRifle(18.2, bT + 9 - Math.abs(sw) * 1.3, -0.03 + sw * 0.05, 18, tipC);
+            ctx.fillStyle = ARM_GLOVE;
+            ctx.beginPath();
+            ctx.arc(17.6, bT + 9.4, 3.5, 0, TAU);
+            ctx.fill();
+            ctx.restore();
+        }
+
+        // 头盔（整体略上移，收短头与身体之间的颈部）
         ctx.save();
-        ctx.translate(0, bodyY - 54 + legLift);
-        ctx.fillStyle = suit;
+        ctx.translate(0, bodyY - 56);
+        ctx.fillStyle = '#eef3fa';
         ctx.beginPath();
         ctx.arc(0, 0, 13, 0, Math.PI * 2);
         ctx.fill();
@@ -2324,20 +2674,16 @@
         ctx.beginPath();
         ctx.arc(0, 3, 12, 0, Math.PI * 2);
         ctx.fill();
-        if (view.face === 'front') {
+if (view.face === 'front') {
             ctx.fillStyle = '#2c3a52';
             ctx.beginPath();
             ctx.ellipse(1.5, -1.5, 8.5, 7, 0, 0, Math.PI * 2);
             ctx.fill();
             ctx.fillStyle = 'rgba(120,220,255,0.45)';
             ctx.beginPath();
-            ctx.ellipse(4, -4, 3.4, 2.4, -0.5, 0, Math.PI * 2);
+            ctx.ellipse(4, -4, 3.4, 2.4, -0.5, 0, 0, Math.PI * 2);
             ctx.fill();
-            ctx.fillStyle = '#ffffff';
-            ctx.beginPath();
-            ctx.arc(-1.5, -1, 1.7, 0, Math.PI * 2);
-            ctx.arc(4.5, -1, 1.7, 0, Math.PI * 2);
-            ctx.fill();
+            drawEyes(t, [[-1.5, -1, 1.7, 1], [4.5, -1, 1.7, 1]]);
         } else if (view.face === 'side') {
             ctx.fillStyle = '#2c3a52';
             ctx.beginPath();
@@ -2347,6 +2693,8 @@
             ctx.beginPath();
             ctx.ellipse(8, -4, 2, 3, 0, 0, Math.PI * 2);
             ctx.fill();
+            // 侧脸只露出一只眼睛，眨眼表现与正面一致
+            drawEyes(t, [[7.6, -0.6, 1.5, 0.88]]);
             ctx.fillStyle = '#ffd166';
             ctx.beginPath();
             ctx.arc(-7, -8, 2.4, 0, Math.PI * 2);
@@ -2371,7 +2719,416 @@
         ctx.restore();
 
         // 道具环（在世界坐标下绘制）
-        if (opts.pkg) drawPkgRing(px, py, opts.t);
+        if (opts.pkg) drawPkgRing(px, py, t);
+    }
+
+    // ---------- 手臂与能量步枪 ----------
+    const ARM_TONE = '#e0e7f3';       // 近镜头一侧的手臂
+    const ARM_TONE_BACK = '#cfd8e6';  // 背面视角的手臂，压暗一档
+    const ARM_GLOVE = '#aeb9cb';
+    const ARM_EDGE = 'rgba(104,124,156,0.55)';
+    // 一段折线肢体：先描边再填色，与腿部同一套画法；noEdge 时只填色不描边
+    function limb(pts, w, tone, noEdge) {
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        ctx.beginPath();
+        ctx.moveTo(pts[0][0], pts[0][1]);
+        for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0], pts[i][1]);
+        if (!noEdge) {
+            ctx.strokeStyle = ARM_EDGE;
+            ctx.lineWidth = w + 1.8;
+            ctx.stroke();
+        }
+        ctx.strokeStyle = tone;
+        ctx.lineWidth = w;
+        ctx.stroke();
+    }
+    // 躯干 + 肩甲的外轮廓，作为手臂与身体衔接处的分界（调用前需先 beginPath）
+    function bodySilhouettePath(bT, bH) {
+        ctx.moveTo(-2.5, bT);
+        ctx.arcTo(13.5, bT, 13.5, bT + bH, 11);
+        ctx.arcTo(13.5, bT + bH, -13.5, bT + bH, 11);
+        ctx.arcTo(-13.5, bT + bH, -13.5, bT, 11);
+        ctx.arcTo(-13.5, bT, 13.5, bT, 11);
+        ctx.closePath();
+        ctx.moveTo(-16.2, bT + 4.5);
+        ctx.ellipse(-11.8, bT + 4.5, 4.2, 5.4, -0.35, 0, TAU);
+        ctx.moveTo(16.2, bT + 4.5);
+        ctx.ellipse(11.8, bT + 4.5, 4.2, 5.4, 0.35, 0, TAU);
+    }
+    // 与躯干相接的手臂：压在身体里的那一段不画边界线，只保留躯干外的轮廓。
+    // 同一条肢体画两遍——一遍只填色并裁在轮廓内，一遍描边并裁在轮廓外，
+    // 这样边界线不会再横穿肩部，肩臂看起来与身体连成一体
+    function limbBlended(pts, w, tone, bT, bH) {
+        ctx.save();
+        ctx.beginPath();
+        bodySilhouettePath(bT, bH);
+        ctx.clip();
+        limb(pts, w, tone, true);
+        ctx.restore();
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(-90, bT - 90, 180, bH + 180);
+        bodySilhouettePath(bT, bH);
+        ctx.clip('evenodd');
+        limb(pts, w, tone, false);
+        ctx.restore();
+    }
+    // 能量步枪：整支枪，(gx,gy) 为握把位置，ang 为枪口朝向，len 为枪身长度
+    function drawRifle(gx, gy, ang, len, tip) {
+        ctx.save();
+        ctx.translate(gx, gy);
+        ctx.rotate(ang);
+        ctx.fillStyle = '#4a5a78';
+        roundRectPath(-4, -3.8, len * 0.88, 7.6, 3);
+        ctx.fill();
+        ctx.fillStyle = '#6f7f9c';
+        roundRectPath(-2, -3, len * 0.46, 2.6, 1.3);
+        ctx.fill();
+        // 弹匣与扳机护圈
+        ctx.fillStyle = '#2c3a52';
+        roundRectPath(1.5, 2, 6, 5.6, 1.8);
+        ctx.fill();
+        // 枪管与散热片
+        ctx.fillStyle = '#5b6b86';
+        roundRectPath(len * 0.82, -2.4, len * 0.34, 4.8, 1.9);
+        ctx.fill();
+        ctx.fillStyle = '#8494b0';
+        for (let i = 0; i < 3; i++) {
+            roundRectPath(len * 0.86 + i * 2.5, -3.2, 1.3, 6.4, 0.65);
+            ctx.fill();
+        }
+        // 能量枪口
+        ctx.fillStyle = tip;
+        ctx.beginPath();
+        ctx.arc(len * 1.16, 0, 2.4, 0, TAU);
+        ctx.fill();
+        ctx.fillStyle = 'rgba(255,255,255,0.7)';
+        ctx.beginPath();
+        ctx.arc(len * 1.16, 0, 1, 0, TAU);
+        ctx.fill();
+        ctx.restore();
+    }
+    // 背面视角：只露出的那一小截枪头，沿 +x 方向伸出
+    function drawGunTip(gx, gy, ang, tip) {
+        ctx.save();
+        ctx.translate(gx, gy);
+        ctx.rotate(ang);
+        ctx.fillStyle = '#4a5a78';
+        roundRectPath(-2, -3.2, 14.5, 6.4, 2.4);
+        ctx.fill();
+        ctx.fillStyle = '#8494b0';
+        roundRectPath(5.5, -4.2, 2.6, 8.4, 1.2);
+        ctx.fill();
+        ctx.fillStyle = tip;
+        ctx.beginPath();
+        ctx.arc(13.8, 0, 2.6, 0, TAU);
+        ctx.fill();
+        ctx.fillStyle = 'rgba(255,255,255,0.7)';
+        ctx.beginPath();
+        ctx.arc(13.8, 0, 1.1, 0, TAU);
+        ctx.fill();
+        ctx.restore();
+    }
+
+    // 一条腿：大腿 / 小腿两段 + 膝盖关节 + 靴子
+    function drawLeg(L, far, tiltMax, tiltUp) {
+        const tone = far ? '#c2cddd' : '#e9eef6';
+        ctx.save();
+        ctx.translate(L.hipX, L.hipY);
+        ctx.scale(L.sc, L.sc);
+        ctx.translate(-L.hipX, -L.hipY);
+        if (far) ctx.translate(0, -1.6);
+        ctx.lineCap = 'round';
+        // 大腿（较粗）
+        ctx.beginPath();
+        ctx.moveTo(L.hipX, L.hipY);
+        ctx.lineTo(L.kneeX, L.kneeY);
+        ctx.strokeStyle = 'rgba(112,132,162,0.4)';    // 描边，让腿部在白色背景上更清晰
+        ctx.lineWidth = 10.2;
+        ctx.stroke();
+        ctx.strokeStyle = tone;
+        ctx.lineWidth = 8.8;
+        ctx.stroke();
+        // 小腿（较细）
+        ctx.beginPath();
+        ctx.moveTo(L.kneeX, L.kneeY);
+        ctx.lineTo(L.footX, L.footY - 3);
+        ctx.strokeStyle = 'rgba(112,132,162,0.4)';
+        ctx.lineWidth = 9;
+        ctx.stroke();
+        ctx.strokeStyle = tone;
+        ctx.lineWidth = 7.4;
+        ctx.stroke();
+        // 膝盖
+        ctx.fillStyle = tone;
+        ctx.beginPath();
+        ctx.arc(L.kneeX, L.kneeY, 4.1, 0, TAU);
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(112,132,162,0.35)';
+        ctx.lineWidth = 1;
+        ctx.stroke();
+        // 膝盖内侧暗部
+        ctx.fillStyle = 'rgba(86,104,132,0.28)';
+        ctx.beginPath();
+        ctx.arc(L.kneeX, L.kneeY + 2, 3.4, 0, TAU);
+        ctx.fill();
+        // 靴子：大头皮鞋造型 —— 厚薄适中的中底 + 前伸的大鞋头 + 低帮鞋面
+        ctx.save();
+        ctx.translate(L.footX, L.footY - 0.4);
+        ctx.rotate(clamp(Math.atan2(L.footY - 3 - L.kneeY, L.footX - L.kneeX) * 0.16, -tiltMax, tiltMax) + (tiltUp || 0));
+        const soleC = far ? '#8e9aad' : '#9da9bb';
+        const shoeHi = far ? '#d2dae6' : '#ffffff';
+        const shoeLo = far ? '#a9b4c5' : '#bfc9d8';
+        const edgeC = 'rgba(100,116,144,0.5)';
+        // 中底：偏薄，前端上翘让鞋头更明显
+        ctx.fillStyle = soleC;
+        ctx.beginPath();
+        ctx.moveTo(-6.6, -0.2);
+        ctx.quadraticCurveTo(-7.2, 2.4, -4.8, 2.6);
+        ctx.lineTo(6.8, 2.6);
+        ctx.quadraticCurveTo(10, 2.4, 10.4, 0);
+        ctx.closePath();
+        ctx.fill();
+        ctx.fillStyle = 'rgba(70,84,106,0.22)';               // 底沿暗部
+        ctx.beginPath();
+        ctx.moveTo(-5.4, 1.5); ctx.lineTo(7, 1.5);
+        ctx.quadraticCurveTo(9.6, 1.4, 9.9, 0.2);
+        ctx.lineTo(-6.8, 0.2);
+        ctx.closePath();
+        ctx.fill();
+        // 鞋面：低帮，鞋头明显前伸
+        const shoeG = ctx.createLinearGradient(0, -5.8, 0, 0.6);
+        shoeG.addColorStop(0, shoeHi);
+        shoeG.addColorStop(1, shoeLo);
+        ctx.fillStyle = shoeG;
+        ctx.beginPath();
+        ctx.moveTo(-3.4, -5.6);
+        ctx.bezierCurveTo(-5.8, -5.3, -6.4, -3.2, -6.1, -0.4);
+        ctx.lineTo(-4.2, 0.4);
+        ctx.lineTo(6.2, 0.4);
+        ctx.quadraticCurveTo(9.6, 0.2, 9.8, -2.6);
+        ctx.bezierCurveTo(9.9, -4.4, 7.4, -5.4, 3.2, -5.6);
+        ctx.closePath();
+        ctx.fill();
+        ctx.strokeStyle = edgeC;
+        ctx.lineWidth = 0.9;
+        ctx.stroke();
+        // 包头缝
+        ctx.strokeStyle = 'rgba(110,128,158,0.45)';
+        ctx.lineWidth = 0.8;
+        ctx.beginPath();
+        ctx.moveTo(4.4, -5.3);
+        ctx.quadraticCurveTo(5.6, -3.2, 5.2, 0.3);
+        ctx.stroke();
+        // 鞋眼鞋带
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(-2.6, -4.6); ctx.lineTo(1.8, -3.8);
+        ctx.moveTo(-2.2, -2.9); ctx.lineTo(2.2, -2.1);
+        ctx.stroke();
+        // 鞋头高光
+        ctx.fillStyle = 'rgba(255,255,255,0.55)';
+        ctx.beginPath();
+        ctx.ellipse(6.6, -3.6, 2.4, 1.6, -0.3, 0, TAU);
+        ctx.fill();
+        // 鞋口
+        ctx.fillStyle = far ? '#9aa6b8' : '#b3bdcd';
+        ctx.beginPath();
+        ctx.ellipse(-0.2, -5.5, 3.4, 1.4, 0, 0, TAU);
+        ctx.fill();
+        ctx.restore();
+        ctx.restore();
+    }
+
+    // 翻滚姿态：四肢蜷成一团近似球体，球心与身形中心（BODY_OFF）重合；
+    // 用「蜷起的四肢沿球面绕行 + 残影 + 速度线」表现翻滚，而不是旋转站姿图形
+    function drawRollBall(cx, cy, dirIdx, opts) {
+        const t = opts.t || 0;
+        const view = DIR_VIEW[dirIdx];
+        const flip = view.sx < 0 ? -1 : 1;
+        const d = DIRS[dirIdx];
+        const fx = d.ix * flip, fy = d.iy;       // 翻滚方向在屏幕上的单位向量
+        const R = 19;
+        const prog = opts.rollProg === undefined ? 0.5 : clamp(opts.rollProg, 0, 1);
+        const vis = clamp(prog / 0.18, 0, 1) * clamp((1 - prog) / 0.14, 0, 1);
+        const spin = (opts.rollAngle || 0) * 1.15;
+
+        // 地面投影（球体腾空，影子略小）
+        ctx.save();
+        ctx.globalAlpha = 0.24 * vis;
+        ctx.fillStyle = '#000000';
+        ctx.beginPath();
+        ctx.ellipse(2, 3, 12, 4.6, 0, 0, TAU);
+        ctx.fill();
+        ctx.restore();
+
+        // 残影：沿翻滚反方向依次淡出
+        for (let i = 5; i >= 1; i--) {
+            const a = vis * 0.26 * (1 - (i - 1) / 6);
+            if (a < 0.005) continue;
+            ctx.save();
+            ctx.globalAlpha = a;
+            ctx.translate(cx - fx * i * 6.2, cy - fy * i * 6.2);
+            ctx.rotate(Math.atan2(fy, fx));
+            ctx.scale(1.12, 0.84);
+            ctx.fillStyle = '#7cc9f2';
+            ctx.beginPath();
+            ctx.arc(0, 0, R * (1 - i * 0.03), 0, TAU);
+            ctx.fill();
+            ctx.strokeStyle = 'rgba(214,246,255,0.7)';
+            ctx.lineWidth = 1.4;
+            ctx.stroke();
+            ctx.restore();
+        }
+
+        // 速度线：拖在球体后方
+        ctx.save();
+        ctx.translate(cx, cy);
+        ctx.rotate(Math.atan2(fy, fx));
+        ctx.lineCap = 'round';
+        for (let i = 0; i < 7; i++) {
+            const ang = Math.PI - 1.25 + i * (2.5 / 6);
+            const rr = R + 3 + (i % 3) * 4;
+            const al = (0.1 + 0.24 * vis) * (0.55 + 0.45 * Math.sin(t * 22 + i * 1.7));
+            ctx.strokeStyle = 'rgba(150,225,255,' + al.toFixed(3) + ')';
+            ctx.lineWidth = 1.6 + (i % 2) * 1.3;
+            ctx.beginPath();
+            ctx.arc(0, 0, rr, ang, ang + 0.5);
+            ctx.stroke();
+        }
+        ctx.restore();
+
+        ctx.save();
+        ctx.translate(cx, cy);
+
+        // 球体本体
+        const bGrad = ctx.createRadialGradient(-R * 0.38, -R * 0.42, R * 0.15, 0, 0, R * 1.12);
+        bGrad.addColorStop(0, '#ffffff');
+        bGrad.addColorStop(0.5, '#e6ecf6');
+        bGrad.addColorStop(1, '#9dabbf');
+        ctx.fillStyle = bGrad;
+        ctx.beginPath();
+        ctx.arc(0, 0, R, 0, TAU);
+        ctx.fill();
+
+        // 蜷起的双腿：根部收在球心附近，鞋尖沿球面绕行
+        const at = (ang, rad) => ({ x: Math.cos(ang + spin) * rad, y: Math.sin(ang + spin) * rad });
+        const limbs = [
+            { ang: 2.35, rad: R * 0.82, w: 8.6, knee: R * 0.5, boot: 1 },
+            { ang: 3.95, rad: R * 0.76, w: 8.2, knee: R * 0.48, boot: 1 }
+        ];
+        ctx.lineCap = 'round';
+        for (let i = 0; i < limbs.length; i++) {
+            const L = limbs[i];
+            const p = at(L.ang, L.rad);
+            const mid = at(L.ang, L.knee);
+            const root = at(L.ang, R * 0.16);
+            ctx.beginPath();
+            ctx.moveTo(root.x, root.y);
+            ctx.lineTo(mid.x, mid.y);
+            ctx.lineTo(p.x, p.y);
+            ctx.strokeStyle = 'rgba(104,124,154,0.5)';       // 描边，让四肢在白色球面上分得开
+            ctx.lineWidth = L.w + 1.8;
+            ctx.stroke();
+            ctx.strokeStyle = i === 0 ? '#e2e9f4' : '#cdd8e8';
+            ctx.lineWidth = L.w;
+            ctx.stroke();
+            ctx.fillStyle = i === 0 ? '#e2e9f4' : '#cdd8e8';
+            ctx.beginPath();
+            ctx.arc(mid.x, mid.y, L.w * 0.42, 0, TAU);
+            ctx.fill();
+            ctx.save();
+            ctx.translate(p.x, p.y);
+            ctx.rotate(L.ang + spin + Math.PI / 2);
+            ctx.fillStyle = '#9da9bb';
+            roundRectPath(-5.4, -0.4, 11, 3.6, 1.8);
+            ctx.fill();
+            const bootG = ctx.createLinearGradient(0, -6, 0, 0.4);
+            bootG.addColorStop(0, '#ffffff');
+            bootG.addColorStop(1, '#c2ccdb');
+            ctx.fillStyle = bootG;
+            ctx.beginPath();
+            ctx.moveTo(-2.9, -5.2);
+            ctx.bezierCurveTo(-4.8, -4.9, -5.4, -2.8, -5.1, -0.6);
+            ctx.lineTo(-3.6, 0);
+            ctx.lineTo(4.4, 0);
+            ctx.quadraticCurveTo(7.2, -0.2, 7.4, -2.2);
+            ctx.bezierCurveTo(7.5, -3.9, 5.8, -5, 2.6, -5.2);
+            ctx.closePath();
+            ctx.fill();
+            ctx.strokeStyle = 'rgba(100,116,144,0.5)';
+            ctx.lineWidth = 0.9;
+            ctx.stroke();
+            ctx.fillStyle = 'rgba(255,255,255,0.55)';
+            ctx.beginPath();
+            ctx.ellipse(4.8, -3.2, 1.9, 1.4, -0.3, 0, TAU);
+            ctx.fill();
+            ctx.restore();
+        }
+
+        // 背包（露在头盔下方）
+        ctx.fillStyle = '#7f8da3';
+        roundRectPath(-9.5, 1.5, 19, 13, 5.5);
+        ctx.fill();
+        ctx.fillStyle = '#9aa7bb';
+        roundRectPath(-8, 3, 16, 5, 2.5);
+        ctx.fill();
+
+        // 头盔：始终朝翻滚方向，只有轻微晃动
+        const hw = -0.34 + Math.sin(spin * 2) * 0.11;
+        ctx.save();
+        ctx.translate(Math.cos(hw) * R * 0.44, Math.sin(hw) * R * 0.44);
+        ctx.rotate(hw * 0.75);
+        ctx.fillStyle = '#eef3fa';
+        ctx.beginPath();
+        ctx.arc(0, 0, 11.4, 0, TAU);
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(104,124,154,0.55)';
+        ctx.lineWidth = 1.6;
+        ctx.stroke();
+        ctx.fillStyle = '#c3ccdb';
+        ctx.beginPath();
+        ctx.arc(0, 2.4, 10.4, 0, TAU);
+        ctx.fill();
+        ctx.fillStyle = '#2c3a52';
+        ctx.beginPath();
+        ctx.ellipse(1.2, -1.4, 7.4, 6.2, 0, 0, TAU);
+        ctx.fill();
+        ctx.fillStyle = 'rgba(120,220,255,0.45)';
+        ctx.beginPath();
+        ctx.ellipse(3.4, -3.6, 2.8, 2, -0.5, 0, TAU);
+        ctx.fill();
+        const bl = blinkAmt(t);
+        const eh = Math.max(0.2, 1.5 * (1 - bl));
+        ctx.fillStyle = '#ffffff';
+        ctx.beginPath();
+        ctx.ellipse(-1, -0.9, 1.5, eh, 0, 0, TAU);
+        ctx.ellipse(4.2, -0.9, 1.5, eh, 0, 0, TAU);
+        ctx.fill();
+        ctx.restore();
+
+        // 球体边缘暗部 + 无敌光环
+        ctx.strokeStyle = 'rgba(88,106,134,0.55)';
+        ctx.lineWidth = 1.6;
+        ctx.beginPath();
+        ctx.arc(0, 0, R - 0.8, 0, TAU);
+        ctx.stroke();
+        ctx.strokeStyle = 'rgba(88,106,134,0.35)';
+        ctx.lineWidth = 2.6;
+        ctx.beginPath();
+        ctx.arc(0, 0, R - 2.6, 1.5, 3.4);
+        ctx.stroke();
+        const hGrad = ctx.createRadialGradient(0, 0, R * 0.88, 0, 0, R * 1.34);
+        hGrad.addColorStop(0, 'rgba(140,230,255,0)');
+        hGrad.addColorStop(0.6, 'rgba(140,230,255,' + (0.2 * vis).toFixed(3) + ')');
+        hGrad.addColorStop(1, 'rgba(140,230,255,0)');
+        ctx.fillStyle = hGrad;
+        ctx.beginPath();
+        ctx.arc(0, 0, R * 1.34, 0, TAU);
+        ctx.fill();
+
+        ctx.restore();
     }
 
     // ==================== 道具图标 ====================
@@ -3878,12 +4635,31 @@
         ctx.beginPath();
         ctx.ellipse(0, 41, 18, 5.5, 0, 0, Math.PI * 2);
         ctx.fill();
-        // 航行灯
-        if ((t % 1.2) < 0.62) {
-            ctx.fillStyle = 'rgba(255,96,96,0.95)';
-            ctx.beginPath(); ctx.arc(-30, -12, 2.8, 0, Math.PI * 2); ctx.fill();
-            ctx.fillStyle = 'rgba(120,255,170,0.95)';
-            ctx.beginPath(); ctx.arc(30, -12, 2.8, 0, Math.PI * 2); ctx.fill();
+        // 航行灯：左红右绿，亮起时带对应颜色光晕
+        const navOn = (t % 1.2) < 0.62;
+        for (let s = -1; s <= 1; s += 2) {
+            const col = s < 0 ? '255,96,96' : '120,255,170';
+            const lx = s * 30, ly = -12;
+            if (navOn) {
+                const lg = ctx.createRadialGradient(lx, ly, 0.5, lx, ly, 10);
+                lg.addColorStop(0, 'rgba(' + col + ',0.9)');
+                lg.addColorStop(0.28, 'rgba(' + col + ',0.42)');
+                lg.addColorStop(1, 'rgba(' + col + ',0)');
+                ctx.fillStyle = lg;
+                ctx.beginPath();
+                ctx.arc(lx, ly, 10, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.strokeStyle = 'rgba(' + col + ',0.5)';
+                ctx.lineWidth = 1;
+                ctx.beginPath();
+                ctx.moveTo(lx - 7, ly); ctx.lineTo(lx + 7, ly);
+                ctx.moveTo(lx, ly - 7); ctx.lineTo(lx, ly + 7);
+                ctx.stroke();
+            }
+            ctx.fillStyle = 'rgba(' + col + ',' + (navOn ? 0.95 : 0.3) + ')';
+            ctx.beginPath();
+            ctx.arc(lx, ly, 2.8, 0, Math.PI * 2);
+            ctx.fill();
         }
         ctx.restore();
     }
@@ -4308,6 +5084,38 @@
                 caseY: wrapVal(cy + Math.sin(a) * (r + 118) * 0.92, MAP_H)
             });
         }
+        buildNoTreeZones(cx, cy);
+    }
+    // 地表禁植区：已有绘图（基地广场 / 火箭 / 碑文 / 战利品柜 / 建筑）及附近小范围内不长树
+    function buildNoTreeZones(cx, cy) {
+        const zones = [];
+        // 基地广场，连同圈外再留一小段
+        zones.push({ x: cx, y: cy, rx: 300 + 90, ry: 220 + 90 });
+        // 火箭本体及周围
+        zones.push({ x: world.rocket.x, y: world.rocket.y - 60, rx: 140, ry: 200 });
+        // 碑文与战利品陈列柜
+        for (let i = 0; i < world.stones.length; i++) {
+            zones.push({ x: world.stones[i].x, y: world.stones[i].y - 30, rx: 130, ry: 170 });
+            zones.push({ x: world.stones[i].caseX, y: world.stones[i].caseY, rx: 135, ry: 115 });
+        }
+        // 建筑（若后续重新加入城区，这里会自动纳入禁植区）
+        if (world.buildings) {
+            for (let i = 0; i < world.buildings.length; i++) {
+                const b = world.buildings[i];
+                zones.push({ x: b.x, y: b.y - 60, rx: 130, ry: 160 });
+            }
+        }
+        world.noTree = zones;
+    }
+    function treeBlocked(wx, wy) {
+        const zones = world.noTree;
+        if (!zones) return false;
+        for (let i = 0; i < zones.length; i++) {
+            const z = zones[i];
+            const dx = dX(z.x, wx) / z.rx, dy = dY(z.y, wy) / z.ry;
+            if (dx * dx + dy * dy < 1) return true;
+        }
+        return false;
     }
     function topWeapon(rec) {
         let best = null, bv = 0;
@@ -4492,34 +5300,15 @@
         ctx.fillStyle = 'rgba(200,220,245,0.75)';
         ctx.fillText('累计分数 ' + save.totalScore + '　累计击杀 ' + save.totalKills, cx, cy - 166);
         ctx.restore();
-        // 仓库/房屋
-        for (let i = 0; i < 6; i++) {
-            const a = Math.PI * (1.2 + i * 0.12);
-            const r = 250;
-            const hx = wrapVal(MAP_W * 0.5 + Math.cos(a) * r, MAP_W);
-            const hy = wrapVal(MAP_H * 0.62 + Math.sin(a) * r * 0.9, MAP_H);
-            const x = scrX(hx), y = scrY(hy);
-            ctx.save();
-            ctx.fillStyle = 'rgba(0,0,0,0.2)';
-            ctx.beginPath();
-            ctx.ellipse(x + 3, y + 14, 26, 9, 0, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.fillStyle = '#d8dde6';
-            ctx.fillRect(x - 22, y - 26, 44, 40);
-            ctx.fillStyle = '#c0473a';
-            ctx.beginPath();
-            ctx.moveTo(x - 26, y - 26); ctx.lineTo(x, y - 46); ctx.lineTo(x + 26, y - 26);
-            ctx.closePath();
-            ctx.fill();
-            ctx.fillStyle = '#7fd8ff';
-            ctx.fillRect(x - 12, y - 16, 10, 10);
-            ctx.fillRect(x + 4, y - 16, 10, 10);
-            ctx.restore();
-        }
+        // 纪念碑进入按 y 排序的地面景物队列
         if (world.stones) {
             for (let i = 0; i < world.stones.length; i++) {
-                drawMemorialStone(world.stones[i], 1);
-                drawTrophyCase(world.stones[i], 1);
+                const st = world.stones[i];
+                groundProps.push({
+                    wy: st.y, draw: (function (s) {
+                        return function () { drawMemorialStone(s, 1); drawTrophyCase(s, 1); };
+                    })(st)
+                });
             }
         }
         // 近距离提示
@@ -4781,9 +5570,23 @@
         }
         drawGround();
         if (world.planet.home) drawEarthHub();
+        // 火箭（含着陆 / 升空动画）同样进入按 y 排序的队列，
+        // 排序键取它在地面上的位置，这样地表景物与升降动画保持一致
+        if (world.landing) {
+            groundProps.push({ wy: world.landing.y, draw: drawLanding });
+        } else if (world.launch) {
+            groundProps.push({ wy: world.rocket.y, draw: drawLaunchRocket });
+        } else {
+            const rk = world.rocket, rsx = scrX(rk.x), rsy = scrY(rk.y);
+            groundProps.push({
+                wy: rk.y, draw: (function (x, y) {
+                    return function () { drawRocketAt(x, y, world.rocket.angle, world.t, 0, ROCKET_SCALE); };
+                })(rsx, rsy)
+            });
+        }
+        drawGroundProps(false);      // 主角北侧的景物（树 / 纪念碑 / 火箭）
         drawZones();
         drawMarks();
-        if (!world.landing && !world.launch) drawRocketAt(scrX(world.rocket.x), scrY(world.rocket.y), world.rocket.angle, world.t, 0, ROCKET_SCALE);
         drawPackages();
         drawOrbs();
         // 拾取 / 射击范围圈（跟随主角的身形中心，画在角色之下）
@@ -4800,6 +5603,7 @@
         if (showHero && !flick) {
             drawAstronaut(W / 2, PLAYER_CY, p.dirIdx, p.walkPhase, p.moving, {
                 t: world.t, roll: p.rollT > 0 ? 1 : 0, rollAngle: p.rollAngle,
+                rollProg: 1 - p.rollT / ROLL_TIME,
                 rocket: p.rockets > 0, pkg: world.pkg
             });
         }
@@ -4812,8 +5616,8 @@
             ctx.stroke();
             ctx.restore();
         }
-        if (world.landing) drawLanding();
-        if (world.launch) drawLaunch();
+        // 主角南侧的景物始终绘制（与主角是否显示无关），保证升降动画期间地表内容完整
+        drawGroundProps(true);
         if (lz < 1) { ctx.restore(); viewZoom = 1; }
         if (world.launch) drawLaunchOverlay();
         if (world.landing) drawLandingOverlay();
@@ -4979,21 +5783,11 @@
     }
     function updateLaunch(dt) {
         const L = world.launch;
-        const p = world.player;
         L.t += dt;
         // 镜头由人物平滑移到火箭，而不是瞬间跳转
         const ce = easeInOut(clamp(L.t / LAUNCH_BOARD, 0, 1));
         world.cam.x = lerp(L.camFrom.x, world.rocket.x, ce);
         world.cam.y = lerp(L.camFrom.y, world.rocket.y, ce);
-        if (L.t < LAUNCH_BOARD) {
-            // 人物走回舰舱并融入
-            const k = clamp(L.t / LAUNCH_BOARD, 0, 1);
-            p.x = wrapVal(world.rocket.x + 18 + 92 * (1 - k), MAP_W);
-            p.y = wrapVal(world.rocket.y + 66 * (1 - k), MAP_H);
-            p.dirIdx = 5;
-            p.moving = k < 0.9;
-            if (p.moving) p.walkPhase += dt * 10;
-        }
         // 尾气与烟尘（升空变慢，密度略提高以保持尾焰连贯）
         if (L.t > LAUNCH_BOARD * 0.8 && Math.random() < dt * 42) {
             world.fx.push({
@@ -5019,20 +5813,14 @@
         ship.y = pp.y - 96;
         ship.ang = -0.6;
     }
-    function drawLaunch() {
+    // 升空中的火箭与尾焰
+    function drawLaunchRocket() {
         const L = world.launch;
-        const p = world.player;
         const t = L.t;
         const gx = scrX(world.rocket.x), gy = scrY(world.rocket.y);
         let rise = 0, flame = 0;
         if (t < LAUNCH_BOARD) {
-            const k = t / LAUNCH_BOARD;
-            // 人物走向舱门并淡入箭体，不再用全屏黑幕遮挡画面
-            ctx.save();
-            ctx.globalAlpha = clamp(1 - k * 1.05, 0, 1);
-            drawAstronaut(gx + (18 + 92 * (1 - k)) - W / 2, gy + 66 * (1 - k) - PLAY_H / 2 + PLAYER_SCR_OFF, 5, p.walkPhase, p.moving,
-                { t: t, roll: 0, rollAngle: 0 });
-            ctx.restore();
+            rise = 0; flame = 0;
         } else if (t < LAUNCH_RISE) {
             rise = launchRise(t);
             flame = 1;
@@ -5040,7 +5828,7 @@
             rise = 1;
             flame = 0;
         }
-        // 登船到升空全程保持地面上的火箭尺寸，不再缩小
+        // 点火到升空全程保持地面上的火箭尺寸，不再缩小
         const shake = t > LAUNCH_BOARD && t < LAUNCH_RISE ? (Math.random() - 0.5) * 4 : 0;
         drawRocketAt(gx + shake, gy - rise * LAUNCH_TRAVEL, world.rocket.angle, t, flame, ROCKET_SCALE);
         for (let i = 0; i < world.fx.length; i++) {
@@ -5066,7 +5854,7 @@
         ctx.fillStyle = '#eaf4ff';
         ctx.shadowColor = 'rgba(0,0,0,0.8)';
         ctx.shadowBlur = 8;
-        ctx.fillText(t < LAUNCH_BOARD ? '登船中' : '升空中', W / 2, 70);
+        ctx.fillText('升空中', W / 2, 70);
         ctx.restore();
         const a = launchDepart(t);
         if (a <= 0) return;
