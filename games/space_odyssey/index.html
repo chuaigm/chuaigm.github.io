@@ -105,7 +105,7 @@
 (function() {
     'use strict';
 
-    const VERSION = '20261012';
+    const VERSION = '20261014-1049';
 
     const canvas = document.getElementById('gameCanvas');
     const ctx = canvas.getContext('2d');
@@ -279,6 +279,7 @@
             } catch (e) { audioCtx = null; }
         }
         if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+        return !!audioCtx;
     }
     function tone(opt) {
         if (!save.sound || !audioCtx) return;
@@ -353,6 +354,188 @@
         }
     };
     function sfx(name) { const f = SFX[name]; if (f) { try { f(); } catch (e) { } } }
+
+    // ==================== 氛围BGM ====================
+    // 设计要点：60BPM 的缓慢和弦循环 + 稀疏的钟琴点缀 + 极轻的高频空气声。
+    // 整体刻意避开低频（垫底和弦走高通、主旋律在 C5 以上），
+    // 听感放松舒缓，且不会和战斗音效抢低频。
+    const BGM_STEP = 1.0;                                   // 1 拍 = 1 秒（60BPM）
+    const BGM_BEATS = 4;                                    // 每小节 4 拍
+    const BGM_LOOKAHEAD = 0.6;                              // 预排程时长（秒）
+    const BGM_FADE = 2.4, BGM_FADE_OUT = 1.3;              // 淡入 / 淡出时长
+    const BGM_VOL = 0.9;                                    // 总线音量
+    // pad：每小节的和弦音（MIDI 音高）；mel：该小节主旋律 [音高, 相对该拍的延迟秒数]
+    const BGM_CHORDS = [
+        { pad: [57, 60, 64, 71], mel: [[76, 0], [79, 0.5]] },   // Am9
+        { pad: [53, 57, 60, 64], mel: [[72, 0], [76, 0.5]] },   // Fmaj7
+        { pad: [52, 55, 59, 64], mel: [[79, 0], [76, 0.5]] },   // Cmaj7
+        { pad: [55, 59, 62, 67], mel: [[74, 0], [71, 0.5]] },   // G6
+        { pad: [57, 60, 64, 67], mel: [[72, 0], [76, 0.5]] },   // Am7
+        { pad: [50, 53, 57, 62], mel: [[69, 0], [72, 0.5]] },   // Dm7
+        { pad: [53, 57, 60, 64], mel: [[77, 0], [81, 0.5]] },   // Fmaj7
+        { pad: [52, 56, 59, 64], mel: [[71, 0], [68, 0.5]] }    // E7sus4
+    ];
+    let bgmOut = null, bgmAirNodes = null, bgmTimer = 0, bgmStep = 0, bgmNext = 0, bgmOn = false;
+    function mtof(m) { return 440 * Math.pow(2, (m - 69) / 12); }
+    function bgmBus() {
+        if (!bgmOut) {
+            bgmOut = audioCtx.createGain();
+            bgmOut.gain.value = 0.0001;
+            bgmOut.connect(masterGain);
+        }
+        return bgmOut;
+    }
+    // 和弦垫：慢起慢落 + 轻微失谐，带高通切掉多余的浑厚低频
+    function bgmPad(t, dur, notes) {
+        const lp = audioCtx.createBiquadFilter();
+        lp.type = 'lowpass';
+        lp.frequency.setValueAtTime(1600, t);
+        lp.frequency.linearRampToValueAtTime(950, t + dur);
+        lp.Q.value = 0.4;
+        const hp = audioCtx.createBiquadFilter();
+        hp.type = 'highpass';
+        hp.frequency.value = 200;
+        const env = audioCtx.createGain();
+        env.gain.setValueAtTime(0.0001, t);
+        env.gain.exponentialRampToValueAtTime(0.05, t + dur * 0.42);
+        env.gain.setValueAtTime(0.05, t + dur * 0.62);
+        env.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+        lp.connect(env); env.connect(hp); hp.connect(bgmBus());
+        for (const m of notes) {
+            const f = mtof(m);
+            for (let i = 0; i < 2; i++) {
+                const osc = audioCtx.createOscillator();
+                osc.type = i ? 'triangle' : 'sine';
+                osc.frequency.value = f;
+                osc.detune.value = i ? 6 : -6;
+                const vg = audioCtx.createGain();
+                vg.gain.value = i ? 0.3 : 0.7;
+                osc.connect(vg); vg.connect(lp);
+                osc.start(t);
+                osc.stop(t + dur + 0.05);
+            }
+        }
+    }
+    // 钟琴点缀：快起慢落，叠两个高次泛音并加极轻的颤音
+    function bgmBell(t, m, vol) {
+        const f = mtof(m);
+        const dur = 2.6;
+        const env = audioCtx.createGain();
+        env.gain.setValueAtTime(0.0001, t);
+        env.gain.exponentialRampToValueAtTime(vol, t + 0.02);
+        env.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+        const vib = audioCtx.createOscillator();
+        vib.frequency.value = 4.6;
+        const vibAmt = audioCtx.createGain();
+        vibAmt.gain.value = 3.2;
+        vib.connect(vibAmt);
+        vib.start(t);
+        vib.stop(t + dur + 0.05);
+        const parts = [[1, 1], [2, 0.2], [3.01, 0.07]];
+        for (const p of parts) {
+            const osc = audioCtx.createOscillator();
+            osc.type = 'sine';
+            osc.frequency.value = f * p[0];
+            vibAmt.connect(osc.frequency);
+            const g = audioCtx.createGain();
+            g.gain.value = p[1];
+            osc.connect(g); g.connect(env);
+            osc.start(t);
+            osc.stop(t + dur + 0.02);
+        }
+        env.connect(bgmBus());
+    }
+    // 空气声：循环白噪声经高通 + 低通，只保留中高频的“风”，并用极慢 LFO 让它呼吸
+    function bgmAirStart(t) {
+        const len = 3;
+        const buf = audioCtx.createBuffer(1, Math.floor(audioCtx.sampleRate * len), audioCtx.sampleRate);
+        const d = buf.getChannelData(0);
+        for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+        const src = audioCtx.createBufferSource();
+        src.buffer = buf;
+        src.loop = true;
+        const hp = audioCtx.createBiquadFilter();
+        hp.type = 'highpass';
+        hp.frequency.value = 700;
+        const lp = audioCtx.createBiquadFilter();
+        lp.type = 'lowpass';
+        lp.frequency.value = 2000;
+        lp.Q.value = 0.6;
+        const g = audioCtx.createGain();
+        g.gain.value = 0.02;
+        const lfo = audioCtx.createOscillator();
+        lfo.frequency.value = 0.055;
+        const lfoAmt = audioCtx.createGain();
+        lfoAmt.gain.value = 0.009;
+        lfo.connect(lfoAmt); lfoAmt.connect(g.gain);
+        const flfo = audioCtx.createOscillator();
+        flfo.frequency.value = 0.031;
+        const flfoAmt = audioCtx.createGain();
+        flfoAmt.gain.value = 420;
+        flfo.connect(flfoAmt); flfoAmt.connect(lp.frequency);
+        src.connect(hp); hp.connect(lp); lp.connect(g); g.connect(bgmBus());
+        src.start(t); lfo.start(t); flfo.start(t);
+        bgmAirNodes = { src: src, lfo: lfo, flfo: flfo };
+    }
+    function bgmAirStop(t) {
+        if (!bgmAirNodes) return;
+        const n = bgmAirNodes;
+        bgmAirNodes = null;
+        n.src.stop(t); n.lfo.stop(t); n.flfo.stop(t);
+    }
+    // 每拍排一次程：和弦在每小节首拍铺开，主旋律按表落在对应延迟上
+    function bgmScheduleStep(t) {
+        const bar = Math.floor(bgmStep / BGM_BEATS) % BGM_CHORDS.length;
+        const beat = bgmStep % BGM_BEATS;
+        const c = BGM_CHORDS[bar];
+        if (beat === 0) {
+            bgmPad(t, BGM_STEP * BGM_BEATS + 0.6, c.pad);
+            for (const n of c.mel) bgmBell(t + n[1], n[0], 0.055);
+        }
+        bgmStep++;
+    }
+    function bgmTick() {
+        if (!audioCtx || !bgmOn || !save.sound) return;
+        const now = audioCtx.currentTime;
+        if (bgmNext < now) bgmNext = now + 0.05;
+        while (bgmNext < now + BGM_LOOKAHEAD) {
+            bgmScheduleStep(bgmNext);
+            bgmNext += BGM_STEP;
+        }
+    }
+    function startBgm() {
+        if (bgmOn || !ensureAudio() || !audioCtx) return;
+        bgmOn = true;
+        const bus = bgmBus();
+        const now = audioCtx.currentTime;
+        bus.gain.cancelScheduledValues(now);
+        bus.gain.setValueAtTime(Math.max(0.0001, bus.gain.value), now);
+        bus.gain.exponentialRampToValueAtTime(BGM_VOL, now + BGM_FADE);
+        bgmNext = now + 0.12;
+        bgmStep = 0;
+        bgmAirStart(now);
+        if (!bgmTimer) bgmTimer = setInterval(bgmTick, 120);
+    }
+    function stopBgm() {
+        if (!bgmOn) return;
+        bgmOn = false;
+        if (bgmTimer) { clearInterval(bgmTimer); bgmTimer = 0; }
+        if (bgmOut && audioCtx) {
+            const now = audioCtx.currentTime;
+            bgmOut.gain.cancelScheduledValues(now);
+            bgmOut.gain.setValueAtTime(Math.max(0.0001, bgmOut.gain.value), now);
+            bgmOut.gain.exponentialRampToValueAtTime(0.0001, now + BGM_FADE_OUT);
+            bgmAirStop(now + BGM_FADE_OUT + 0.05);
+        } else {
+            bgmAirStop(0);
+        }
+    }
+    // 统一按当前状态决定氛围BGM：仅地球着陆动画结束后播放，战斗中继续循环（音量已压低）
+    function syncBgm() {
+        const on = save.sound && scene === 'play' && world && !world.landing && !world.launch && !!(world.planet && world.planet.home);
+        if (on) startBgm();
+        else if (bgmOn) stopBgm();
+    }
 
     // ==================== 存档 ====================
     function defaultPlanetRec() {
@@ -1658,6 +1841,14 @@
         ctx.restore();
         const mw = 250;
         drawMenuPanel((W - mw) / 2, 548, mw, TITLE_ITEMS, titleState.sel, '#ffd24a', 4, true);
+        // 右下角版本号
+        ctx.save();
+        ctx.textAlign = 'right';
+        ctx.textBaseline = 'alphabetic';
+        setFont(16, 'normal');
+        ctx.fillStyle = 'rgba(186,206,236,0.55)';
+        ctx.fillText('Chuai Game ' + VERSION, W - 24, H - 22);
+        ctx.restore();
     }
 
     // ==================== 场景：设置 ====================
@@ -6937,7 +7128,8 @@ if (!mv.x && !mv.y || (mv.x * tx + mv.y * ty) > 0) {
             ship.ang = -0.6;
             world = null;
         }
-        }
+        syncBgm();
+    }
     function draw() {
         applyCanvasTransform();
         ctx.clearRect(0, 0, W, H);
