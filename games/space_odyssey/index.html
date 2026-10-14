@@ -560,7 +560,7 @@
         };
     }
     function defaultSave() {
-        const s = { sound: true, touchUI: false, visits: 0, totalScore: 0, totalKills: 0, planets: {}, loadout: {}, gems: {}, relics: {} };
+        const s = { sound: true, touchUI: false, totalScore: 0, totalKills: 0, planets: {}, loadout: {}, gems: {}, relics: {} };
         for (const p of PLANETS) s.planets[p.id] = defaultPlanetRec();
         return s;
     }
@@ -574,7 +574,6 @@
             if (data && typeof data === 'object') {
                 if (typeof data.sound === 'boolean') base.sound = data.sound;
                 if (typeof data.touchUI === 'boolean') base.touchUI = data.touchUI;
-                base.visits = data.visits | 0;
                 base.totalScore = data.totalScore | 0;
                 base.totalKills = data.totalKills | 0;
                 if (data.loadout && typeof data.loadout === 'object') base.loadout = data.loadout;
@@ -602,7 +601,10 @@
                     }
                 }
             }
-        } catch (e) { }
+        } catch (e) {
+            // 读档出错不能静默吞掉：否则会像之前那样悄悄退化成部分读档（战绩清零）
+            if (window.console && console.warn) console.warn('[space_odyssey] 读档失败，已退回默认值：', e);
+        }
         return base;
     }
     function persist() {
@@ -748,7 +750,6 @@
         const a = p.angMid + Math.sin(solarT * p.angSp + p.angPh) * p.angAmp;
         return { x: SUN.x + p.orbA * Math.cos(a), y: SUN.y + p.orbB * Math.sin(a) };
     }
-    save = loadSave();
 
     const WEAPON_NAMES = {
         pistol: '脉冲手枪',
@@ -780,6 +781,10 @@
     function gemItemId(pid) { return 'gem_' + pid; }
     function gemName(pid) { return (PLANET_BY_ID[pid] ? PLANET_BY_ID[pid].name : '未知') + '宝石'; }
 
+    // 必须在 RELICS / ITEM_NAMES 等存档用到的表都定义好之后再读档，
+    // 否则 loadSave 内部会撞上 const 的暂时性死区而抛错，被 catch 静默吞掉导致读档残缺
+    save = loadSave();
+
     // ==================== 信标 / 挖掘 ====================
     const BEACON_DROP_RATE = 0.70;          // BOSS 被击杀后掉落信标的概率
     const DIG_CD = 2.0;                     // 挖掘冷却（与尘土特效同长，尘土散尽即可再挖）
@@ -791,6 +796,11 @@
     const BEACON_SIGNAL_FADE = 460;         // 出了最强区后信号衰减到零的距离
     const BEACON_FLY = 0.72;                // 信标从 BOSS 处跳落到地面的时长（秒）
     const BEACON_HOP = 76;                  // 跳跃时的抛物线高度
+    const BEACON_HEAD_OFF = 52;             // 拾取后悬浮中心相对脚底的高度（头部附近）
+    const BEACON_HEAD_R = 40;               // 悬浮环带半径：越小越贴头
+    const FIND_HOP_R = CHAR_S * 2;           // 挖出的东西跳到人物附近的距离（两个身位）
+    const ORB_LIFE = 60;                    // 经验球落地后多久消失（秒）
+    const ORB_BLINK = 5;                    // 经验球即将消失前的闪烁提示时长
     const BOSS_WARN_TIME = 1.0;             // BOSS 技能发动前的范围预警时长
 
     // ==================== 输入 ====================
@@ -2060,8 +2070,6 @@
         ship.y = ep.y - 96;
         ship.ang = -0.6;
         ship.t = 0;
-        save.visits++;
-        persist();
         sfx('warp');
     }
     // 进入星球：着陆动画直接在真实场景内播放，与开始游戏无缝衔接
@@ -4751,7 +4759,7 @@ if (view.face === 'front') {
         world.kills++;
         world.score += 10 + world.tier * 5;
         const val = e.kind === 'ranged' ? 3 : (e.kind === 'runner' ? 2 : 1);
-        world.orbs.push({ x: e.x, y: e.y, val: gainXp === false ? 0 : val, ph: Math.random() * 6, homing: false });
+        world.orbs.push({ x: e.x, y: e.y, val: gainXp === false ? 0 : val, ph: Math.random() * 6, homing: false, age: 0 });
         addFx({ kind: 'boom', x: e.x, y: e.y, life: 0.36, max: 0.36, r: e.r * 2.2, col: world.planet.accent });
         sfx('enemyDie');
     }
@@ -5437,7 +5445,7 @@ function spawnBossSpoils(bx, by, br) {
         x: bx, y: by, gx: bx, gy: by, z: 0,
         fromX: bx, fromY: by, tx: tx, ty: ty, fly: BEACON_FLY, flyMax: BEACON_FLY,
         ph: Math.random() * 6, t: 0, beat: 1.2, flash: 1,
-        held: false, silent: false, vx: 0, vy: 0, wander: 0
+        held: false, silent: false, vx: 0, vy: 0, wander: 0, ox: 0, oy: 0
     };
     addPopup(p.x, p.y - 58, 'BOSS 掉落了一只闪光信标！', '#ffe066', true);
     addPopup(p.x, p.y - 26, '走过去拾取它', '#cfe4ff', true);
@@ -5482,28 +5490,27 @@ function updateBeacon(dt) {
     if (!bc.held) {
         if (Math.hypot(dX(p.x, bc.x), dY(p.y, bc.y)) < PICKUP_BASE + p.pickupBonus) {
             bc.held = true;
-            bc.vx = 0; bc.vy = 0; bc.wander = 0; bc.z = 0; bc.gx = bc.x; bc.gy = bc.y;
+            bc.vx = 0; bc.vy = 0; bc.wander = 0; bc.ox = 0; bc.oy = 0; bc.z = 0; bc.gx = bc.x; bc.gy = bc.y;
             sfx('item');
             addFx({ kind: 'spark', x: bc.x, y: bc.y, life: 0.6, max: 0.6, r: 44, col: '#ffe066' });
             addPopup(p.x, p.y - 44, '拾取闪光信标！', '#ffe066', true);
         }
     } else {
-        // 在人物周围缓慢随机飘动：随机游走 + 朝人物上方的环带缓慢回归
+        // 漂浮在人物头部附近的随机位置：每 0.7~1.6 秒在头部四周重选一个偏移点，
+        // 再以很快的插值追过去，因此始终紧贴人物、落点又是不固定的
         bc.wander -= dt;
         if (bc.wander <= 0) {
-            bc.wander = rand(1.4, 3.0);
+            bc.wander = rand(0.7, 1.6);
             const a = rand(0, Math.PI * 2);
-            const sp = rand(22, 52);
-            bc.vx = Math.cos(a) * sp;
-            bc.vy = Math.sin(a) * sp;
+            const rr = rand(14, BEACON_HEAD_R);
+            bc.ox = Math.cos(a) * rr;
+            bc.oy = Math.sin(a) * rr * 0.8;
         }
-        bc.x = wrapVal(bc.x + bc.vx * dt, MAP_W);
-        bc.y = wrapVal(bc.y + bc.vy * dt, MAP_H);
-        const ddx = dX(p.x - 30, bc.x), ddy = dY(p.y, bc.y);
-        const dd = Math.max(1, Math.hypot(ddx, ddy));
-        const corr = clamp((dd - 76) / 76, -1.5, 1.5);
-        bc.x = wrapVal(bc.x + (ddx / dd) * corr * 58 * dt, MAP_W);
-        bc.y = wrapVal(bc.y + (ddy / dd) * corr * 58 * dt, MAP_H);
+        const gx = wrapVal(p.x + bc.ox, MAP_W);
+        const gy = wrapVal(p.y - BEACON_HEAD_OFF + bc.oy, MAP_H);
+        const k = Math.min(1, dt * 9);
+        bc.x = wrapVal(bc.x + dX(gx, bc.x) * k, MAP_W);
+        bc.y = wrapVal(bc.y + dY(gy, bc.y) * k, MAP_H);
         bc.gx = bc.x; bc.gy = bc.y;
     }
     if (bc.silent) { bc.flash = Math.max(0, (bc.flash || 0) - dt * 4); return; }
@@ -5531,6 +5538,7 @@ function tryDig() {
     if (hid && Math.hypot(dX(world.player.x, hid.x), dY(world.player.y, hid.y)) <= DIG_HIT_R) resolveDig();
 }
 // 挖掘结算：80% 本星球特色装备（挖过就不再出现）/ 20% 本星球宝石 / 其余空手
+// 注意：这里只负责判定并把东西弹到人物附近，暂不入库；等玩家真正拾取时才写存档。
 function resolveDig() {
     const p = world.player;
     const pid = world.planet.id;
@@ -5544,27 +5552,42 @@ function resolveDig() {
     world.hidden = null;
     world.beacon = null;                 // 挖完即消失，信标不再继续提示
     world.dig.locked = true;
-    if (kind === 'relic') {
-        save.relics[pid] = 1;
-        grantRelicItem(relic.item);
-        world.found = { x: hx, y: hy, item: relic.item, name: relic.name, kind: 'relic', life: 0 };
-        addPopup(p.x, p.y - 58, '挖到 ' + relic.name + '！', relic.col, true);
-        addPopup(p.x, p.y - 26, '已存入地球 · 装备仓库', '#cfe4ff', true);
-        sfx('found');
-        addFx({ kind: 'boom', x: hx, y: hy, life: 0.8, max: 0.8, r: 92, col: relic.col });
-        for (let i = 0; i < 16; i++) addFx({ kind: 'spark', x: hx, y: hy, life: 0.8, max: 0.8, r: rand(3, 8), col: relic.col });
-    } else if (kind === 'gem') {
-        save.gems[pid] = (save.gems[pid] || 0) + 1;
-        world.found = { x: hx, y: hy, item: gemItemId(pid), name: gemName(pid), kind: 'gem', life: 0 };
-        addPopup(p.x, p.y - 58, '挖到 ' + gemName(pid) + '！', '#bfe8ff', true);
-        addPopup(p.x, p.y - 26, '已陈列于地球 · 展览柜', '#cfe4ff', true);
-        sfx('found');
-        addFx({ kind: 'boom', x: hx, y: hy, life: 0.8, max: 0.8, r: 80, col: '#bfe8ff' });
-        for (let i = 0; i < 16; i++) addFx({ kind: 'spark', x: hx, y: hy, life: 0.8, max: 0.8, r: rand(3, 8), col: '#bfe8ff' });
-    } else {
+    if (kind === 'none') {
         world.found = null;
         addPopup(p.x, p.y - 58, '什么都没挖到…', '#c9d4e6', true);
         sfx('uiBack');
+        return;
+    }
+    // 与信标同样的跳出效果：从埋藏点弹起，落到人物附近两个身位的随机地面点上
+    const a = rand(0, Math.PI * 2);
+    const rr = rand(FIND_HOP_R * 0.62, FIND_HOP_R);
+    const tx = wrapVal(p.x + Math.cos(a) * rr, MAP_W);
+    const ty = wrapVal(p.y + Math.sin(a) * rr, MAP_H);
+    const item = kind === 'relic' ? relic.item : gemItemId(pid);
+    const name = kind === 'relic' ? relic.name : gemName(pid);
+    const col = kind === 'relic' ? relic.col : '#bfe8ff';
+    world.found = {
+        x: hx, y: hy, gx: hx, gy: hy, z: 0,
+        fromX: hx, fromY: hy, tx: tx, ty: ty, fly: BEACON_FLY, flyMax: BEACON_FLY,
+        item: item, name: name, kind: kind, pid: pid,
+        life: 0, collect: false, collectT: 0
+    };
+    addPopup(p.x, p.y - 58, '挖到 ' + name + '！', col, true);
+    addPopup(p.x, p.y - 26, '走过去拾取它，拾取后才入库', '#cfe4ff', true);
+    sfx('found');
+    addFx({ kind: 'boom', x: hx, y: hy, life: 0.8, max: 0.8, r: 80, col: col });
+    for (let i = 0; i < 16; i++) addFx({ kind: 'spark', x: hx, y: hy, life: 0.8, max: 0.8, r: rand(3, 8), col: col });
+}
+// 真正拾取到的那一刻才入库并落盘
+function storeFound(f) {
+    if (f.kind === 'relic') {
+        save.relics[f.pid] = 1;
+        const ok = grantRelicItem(f.item);
+        addPopup(world.player.x, world.player.y - 58,
+            ok ? '已存入地球 · 装备仓库' : '装备仓库已满，装备遗失了', ok ? '#cfe4ff' : '#ff9b9b', true);
+    } else {
+        save.gems[f.pid] = (save.gems[f.pid] || 0) + 1;
+        addPopup(world.player.x, world.player.y - 26, '已陈列于地球 · 展览柜', '#cfe4ff', true);
     }
     persist();
 }
@@ -5589,17 +5612,42 @@ function foundName(f) {
     if (f.name) return f.name;
     return ITEM_NAMES[f.item] || '战利品';
 }
-// 挖出来的东西会一直留在地上，等角色走过去拾取
+// 挖出来的东西会跳出埋藏点、落到人物附近，等角色走过去拾取；拾取完成才入库
 function updateFound(dt) {
     const f = world.found;
     if (!f) return;
     const p = world.player;
     f.life += dt;
+    if (f.fly > 0) {
+        // 跳出动画：水平缓出、竖直抛物线，落地后才可以被拾取
+        f.fly = Math.max(0, f.fly - dt);
+        const k = 1 - f.fly / f.flyMax;
+        const e = easeOutCubic(k);
+        f.gx = wrapVal(lerp(f.fromX, f.tx, e), MAP_W);
+        f.gy = wrapVal(lerp(f.fromY, f.ty, e), MAP_H);
+        f.z = Math.sin(Math.PI * k) * BEACON_HOP;
+        f.x = f.gx;
+        f.y = f.gy - f.z;
+        if (f.fly <= 0) {
+            f.z = 0;
+            f.x = f.tx; f.y = f.ty;
+            sfx('drop');
+            addFx({ kind: 'boom', x: f.tx, y: f.ty, life: 0.42, max: 0.42, r: 50, col: foundColor(f) });
+            for (let i = 0; i < 7; i++) {
+                addFx({ kind: 'spark', x: f.tx + rand(-18, 18), y: f.ty + rand(-6, 6), life: 0.45, max: 0.45, r: rand(2, 5), col: foundColor(f) });
+            }
+        }
+        return;
+    }
     if (f.collect) {
+        // 被吸向人物，动画结束后才真正入库
         f.collectT = (f.collectT || 0) + dt;
         f.x = wrapVal(lerp(f.x, p.x, Math.min(1, dt * 7)), MAP_W);
         f.y = wrapVal(lerp(f.y, p.y - 22, Math.min(1, dt * 7)), MAP_H);
-        if (f.collectT >= 0.42) world.found = null;
+        if (f.collectT >= 0.42) {
+            storeFound(f);
+            world.found = null;
+        }
         return;
     }
     if (Math.hypot(dX(p.x, f.x), dY(p.y, f.y)) < PICKUP_BASE + p.pickupBonus) {
@@ -5721,19 +5769,30 @@ function drawBeacon() {
         ctx.restore();
     }
 }
-// 挖出来的东西：从地面弹出后原地常驻，四周向外辐射光芒，等角色走近即可拾取
+// 挖出来的东西：从埋藏点跳出落到人物附近，四周向外辐射光芒，等角色走近即可拾取
 function drawFoundItem() {
     const f = world.found;
     if (!f) return;
     const x = scrX(f.x), y = scrY(f.y);
+    const gx = scrX(f.gx === undefined ? f.x : f.gx);
+    const gy = scrY(f.gy === undefined ? f.y : f.gy);
     const m = 240 / viewZoom;
     if (x < -m || x > W + m || y < -m || y > PLAY_H + m) return;
     const grow = clamp(f.life / 0.35, 0, 1);
     const pop = 1 + 0.07 * Math.sin(f.life * 5);
     const fade = f.collect ? clamp(1 - (f.collectT || 0) / 0.42, 0, 1) : 1;
+    const air = clamp((f.z || 0) / BEACON_HOP, 0, 1);
     const t = world.t;
     const col = foundColor(f);
     const S = (grow < 1 ? grow * 1.6 - 0.6 * grow * grow : 1) * pop;
+    // 地面光斑：跟着落地点走，跳得越高越大越淡
+    ctx.save();
+    ctx.globalAlpha = fade * (1 - air * 0.6);
+    ctx.fillStyle = hexA(col, 0.18);
+    ctx.beginPath();
+    ctx.ellipse(gx, gy + 4, 40 * (1 + air * 0.5), 16 * (1 + air * 0.4), 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
     ctx.save();
     ctx.translate(x, y);
     // 向外辐射的光芒
@@ -5761,9 +5820,6 @@ function drawFoundItem() {
     g2.addColorStop(1, hexA(col, 0));
     ctx.fillStyle = g2;
     ctx.beginPath(); ctx.arc(0, -30, 66, 0, Math.PI * 2); ctx.fill();
-    // 地面光斑
-    ctx.fillStyle = hexA(col, 0.16 * fade);
-    ctx.beginPath(); ctx.ellipse(0, 4, 42, 17, 0, 0, Math.PI * 2); ctx.fill();
     ctx.scale(S, S);
     ctx.fillStyle = 'rgba(12,20,34,0.86)';
     ctx.beginPath(); ctx.arc(0, -30, 30, 0, Math.PI * 2); ctx.fill();
@@ -6163,6 +6219,14 @@ if (!mv.x && !mv.y || (mv.x * tx + mv.y * ty) > 0) {
         if (world.boss && !world.bossDefeated && world.boss.hp <= 0) {
             const b = world.boss;
             world.bossDefeated = true;
+            // BOSS 一死，还没放完的技能与场上残留的攻击全部作废：
+            // 预警队列倒计时不受 bossUpdate 的提前 return 影响，不清的话会照常发动
+            world.pend.length = 0;
+            world.warns.length = 0;
+            world.zones.length = 0;
+            world.blades.length = 0;
+            world.beams.length = 0;
+            world.marks.length = 0;
             world.score += 800;
             addFx({ kind: 'boom', x: b.x, y: b.y, life: 1.2, max: 1.2, r: 200, col: planet.accent });
             addFx({ kind: 'boom', x: b.x, y: b.y, life: 1.6, max: 1.6, r: 300, col: '#ffffff' });
@@ -6176,7 +6240,7 @@ if (!mv.x && !mv.y || (mv.x * tx + mv.y * ty) > 0) {
             for (let i = world.enemies.length - 1; i >= 0; i--) killEnemy(world.enemies[i], i);
             world.enemyBullets.length = 0;
             for (let i = 0; i < 14; i++) {
-                world.orbs.push({ x: wrapVal(b.x + rand(-120, 120), MAP_W), y: wrapVal(b.y + rand(-120, 120), MAP_H), val: 2, ph: Math.random() * 6, homing: false });
+                world.orbs.push({ x: wrapVal(b.x + rand(-120, 120), MAP_W), y: wrapVal(b.y + rand(-120, 120), MAP_H), val: 2, ph: Math.random() * 6, homing: false, age: 0 });
             }
             spawnBossSpoils(b.x, b.y, b.r);
             recordRun(true);
@@ -6288,17 +6352,24 @@ if (!mv.x && !mv.y || (mv.x * tx + mv.y * ty) > 0) {
 
         // 经验球：必须先进入拾取圈才会被吸引；一旦被吸引必定拾取到
         // BOSS 击败后停止拾取，场上光点冻结为纯装饰
+        // 未被拾取的经验球最多停留 ORB_LIFE 秒，超时淡出消失，避免光点无限堆积
         const pickR = PICKUP_BASE + p.pickupBonus;
         // 判定略宽于绘制的圈，抵消取整误差并让圈边缘的手感更跟手
         const lockR = pickR * PICKUP_TOL;
         const oby = playerBodyY();        // 身形中心（与范围圈一致）
         for (let i = world.orbs.length - 1; i >= 0; i--) {
             const o = world.orbs[i];
-            if (world.bossDefeated) continue;   // 场上光点冻结为纯装饰
+            o.age = (o.age || 0) + dt;
+            if (!o.homing && o.age >= ORB_LIFE) {
+                addFx({ kind: 'spark', x: o.x, y: o.y, life: 0.3, max: 0.3, r: 10, col: '#9bf6b0' });
+                world.orbs.splice(i, 1);
+                continue;
+            }
+            if (world.bossDefeated) continue;   // 场上光点冻结为纯装饰（但仍会超时消失）
             let dx = dX(p.x, o.x), dy = dY(oby, o.y);
             let d = Math.hypot(dx, dy);
             if (!o.homing) {
-                // 未拾取的经验光点本局内不会消失，只有踏入拾取圈才会被吸引
+                // 未拾取的经验光点只在拾取圈内被吸引，超时则淡出
                 if (d > lockR) continue;
                 o.homing = true;
             }
@@ -6896,21 +6967,29 @@ if (!mv.x && !mv.y || (mv.x * tx + mv.y * ty) > 0) {
             const x = scrX(o.x), y = scrY(o.y);
             const bob = Math.sin(world.t * 4 + o.ph) * 3;
             const fade = world.bossDefeated ? 0.55 : 1;
+            // 即将超时的经验球闪烁提醒，然后淡出
+            const left = ORB_LIFE - (o.age || 0);
+            let blink = 1;
+            if (!o.homing && left < ORB_BLINK) {
+                blink = 0.3 + 0.7 * Math.abs(Math.sin(world.t * 9 + o.ph));
+            }
+            const alpha = fade * blink;
             const pulse = 1 + 0.05 * Math.sin(world.t * 8 + o.ph);
             const R = (o.homing ? 15 : 16) * pulse;
             ctx.save();
+            ctx.globalAlpha = alpha;
             const g = ctx.createRadialGradient(x, y + bob, 1, x, y + bob, R);
-            g.addColorStop(0, 'rgba(180,255,220,' + (0.5 * fade) + ')');
+            g.addColorStop(0, 'rgba(180,255,220,' + (0.5 * alpha) + ')');
             g.addColorStop(1, 'rgba(120,255,190,0)');
             ctx.fillStyle = g;
             ctx.beginPath();
             ctx.arc(x, y + bob, R, 0, Math.PI * 2);
             ctx.fill();
-            ctx.fillStyle = o.homing ? 'rgba(255,255,255,' + fade + ')' : 'rgba(190,255,225,' + fade + ')';
+            ctx.fillStyle = o.homing ? 'rgba(255,255,255,' + alpha + ')' : 'rgba(190,255,225,' + alpha + ')';
             ctx.beginPath();
             ctx.arc(x, y + bob, 5 * pulse, 0, Math.PI * 2);
             ctx.fill();
-            ctx.fillStyle = 'rgba(255,255,255,' + (0.9 * fade) + ')';
+            ctx.fillStyle = 'rgba(255,255,255,' + (0.9 * alpha) + ')';
             ctx.beginPath();
             ctx.arc(x - 1.4, y + bob - 1.6, 2, 0, Math.PI * 2);
             ctx.fill();
@@ -7853,7 +7932,8 @@ function drawTrophyCase(st, alpha) {
         ctx.restore();
     }
 
-    function drawDirectionMarker(wx, wy, col, label) {
+    // 屏幕边缘的指向提示：alpha 控制半透明，slot 让多个同类提示在边缘错开、不叠在一起
+    function drawDirectionMarker(wx, wy, col, label, alpha, slot) {
         const x = scrX(wx), y = scrY(wy);
         const margin = 54;
         if (x > margin && x < W - margin && y > margin && y < PLAY_H - margin) return;
@@ -7864,9 +7944,12 @@ function drawTrophyCase(st, alpha) {
         const tx = dx !== 0 ? (W / 2 - margin) / Math.abs(dx) : Infinity;
         const ty = dy !== 0 ? (PLAY_H / 2 - margin) / Math.abs(dy) : Infinity;
         const tt = Math.min(tx, ty);
-        const px = cx + dx * tt, py = cy + dy * tt;
+        const off = (slot || 0) * 26;
+        const px = cx + dx * tt - dy * off, py = cy + dy * tt + dx * off;
         const dist = Math.round(len / 10);
+        const a = alpha === undefined ? 1 : alpha;
         ctx.save();
+        ctx.globalAlpha = a;
         ctx.translate(px, py);
         ctx.rotate(Math.atan2(dy, dx));
         ctx.fillStyle = 'rgba(8,12,22,0.75)';
@@ -7880,6 +7963,7 @@ function drawTrophyCase(st, alpha) {
         ctx.fill();
         ctx.restore();
         ctx.save();
+        ctx.globalAlpha = a;
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         setFont(11, 'bold');
@@ -8011,8 +8095,13 @@ function drawPlay() {
             ctx.restore();
             if (world.boss && !world.bossDefeated) drawDirectionMarker(world.boss.x, world.boss.y, '#ff6b6b', 'BOSS');
             if (world.packages.length && !world.planet.home) {
-                const pk0 = world.packages[0];
-                drawDirectionMarker(pk0.x, pk0.y, pk0.kind === 'weapon' ? '#d0a0ff' : '#ffd966', pk0.kind === 'weapon' ? '装备箱' : '道具箱');
+                // 所有未拾取的箱子都要有指向提示，多个箱子在边缘错开排列
+                for (let i = 0; i < world.packages.length; i++) {
+                    const pk = world.packages[i];
+                    drawDirectionMarker(pk.x, pk.y,
+                        pk.kind === 'weapon' ? '#d0a0ff' : '#ffd966',
+                        pk.kind === 'weapon' ? '装备箱' : '道具箱', 0.72, i);
+                }
             }
             if (world.planet.home || world.bossDefeated) drawDirectionMarker(world.rocket.x, world.rocket.y, '#7cf07c', '火箭');
             if (world.supply && !world.inv.on) drawDirectionMarker(world.supply.x, world.supply.y, '#7ce0ff', '补给飞船');
