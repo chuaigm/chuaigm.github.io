@@ -105,7 +105,7 @@
 (function() {
     'use strict';
 
-    const VERSION = '20261014-1049';
+    const VERSION = '20261014-1717';
 
     const canvas = document.getElementById('gameCanvas');
     const ctx = canvas.getContext('2d');
@@ -790,14 +790,30 @@
     const DIG_CD = 2.0;                     // 挖掘冷却（与尘土特效同长，尘土散尽即可再挖）
     const DIG_FX = 2.0;                     // 尘土特效时长
     const DIG_HIT_R = PICKUP_BASE;          // 命中判定：站进隐藏道具的初始拾取范围内才算挖到
-    const DIG_PEAK_R = PICKUP_BASE * 2;     // 信号最强区：以隐藏道具为中心两个初始拾取范围
+    const DIG_PEAK_R = PICKUP_BASE * 2;     // 挖掘命中半径仍以两个初始拾取范围为准
     const BEACON_BEAT_FAR = 2.4;            // 信号最弱时的间隔（秒）
     const BEACON_BEAT_NEAR = 0.13;          // 进入最强区后的间隔（秒）
-    const BEACON_SIGNAL_FADE = 460;         // 出了最强区后信号衰减到零的距离
     const BEACON_FLY = 0.72;                // 信标从 BOSS 处跳落到地面的时长（秒）
     const BEACON_HOP = 76;                  // 跳跃时的抛物线高度
-    const BEACON_HEAD_OFF = 52;             // 拾取后悬浮中心相对脚底的高度（头部附近）
+    
     const BEACON_HEAD_R = 40;               // 悬浮环带半径：越小越贴头
+    const BEACON_DRIFT_R = 34;              // 自身漂移能到达的最大偏移
+    // 漂移中心必须与方向判定的原点一致，否则连线方向会整体偏掉几十度。
+    // 这里直接取人物身形中心（与 drawRangeRings 的圈心相同）。
+    const BEACON_POINT_R = PICKUP_BASE * 1.2;  // 微弱时信标停在「人物→埋藏点」连线上的距离（略大于初始拾取范围）
+    const BEACON_POINT_JITTER = 0.16;       // 连线两侧允许的抖动弧度（±9°），小到不破坏指向性
+    const BEACON_STEP_D = PICKUP_BASE * 2;  // 信号每一级覆盖的距离：两个初始拾取范围
+    const SIG_STEPS = 5;                    // 信号共分 5 级
+    const BEACON_WEAK_SIG = 0.5;            // 「一般」及更弱（≤0.5）时朝埋藏点方向漂
+    // 信标信号共 5 级，每级两个初始拾取范围（PICKUP_BASE * 2 = 100px）：
+    //   最强 0~100（平台，sig 恒为 1）· 清晰 100~200 · 较强 200~300 · 一般 300~400 · 微弱 ≥400
+    const SIG_LEVELS = [
+        { atLeast: 1.00, text: '信号最强', col: '#ffe066' },
+        { atLeast: 0.75, text: '信号清晰', col: '#cbf79e' },
+        { atLeast: 0.50, text: '信号较强', col: '#a8e0ff' },
+        { atLeast: 0.25, text: '信号一般', col: '#b9c5d4' },
+        { atLeast: -1,   text: '信号微弱', col: '#9aa6b6' }
+    ];
     const FIND_HOP_R = CHAR_S * 2;           // 挖出的东西跳到人物附近的距离（两个身位）
     const ORB_LIFE = 60;                    // 经验球落地后多久消失（秒）
     const ORB_BLINK = 5;                    // 经验球即将消失前的闪烁提示时长
@@ -5455,10 +5471,16 @@ function beaconSignal() {
     if (!world.beacon || !world.hidden) return 0;
     const p = world.player;
     const d = Math.hypot(dX(p.x, world.hidden.x), dY(p.y, world.hidden.y));
-    if (d <= DIG_PEAK_R) return 1;
-    return clamp(1 - (d - DIG_PEAK_R) / BEACON_SIGNAL_FADE, 0, 1);
-}
-function beaconBeep(sig) {
+if (d <= BEACON_STEP_D) return 1;
+    // 平台之外按每级 BEACON_STEP_D 线性衰减，剩下 4 级刚好走到 0
+    return clamp(1 - (d - BEACON_STEP_D) / (BEACON_STEP_D * (SIG_STEPS - 1)), 0, 1);
+    }
+    // 取信号对应的等级（由强到弱依次匹配）
+    function sigLevel(sig) {
+        for (let i = 0; i < SIG_LEVELS.length; i++) if (sig >= SIG_LEVELS[i].atLeast) return SIG_LEVELS[i];
+        return SIG_LEVELS[SIG_LEVELS.length - 1];
+    }
+    function beaconBeep(sig) {
     tone({ type: 'square', f0: 880 + 620 * sig, f1: 1160 + 900 * sig, dur: 0.045 + 0.03 * sig, vol: 0.032 + 0.036 * sig });
     tone({ type: 'sine', f0: 1760 + 900 * sig, dur: 0.03, vol: 0.016 + 0.022 * sig });
 }
@@ -5490,27 +5512,41 @@ function updateBeacon(dt) {
     if (!bc.held) {
         if (Math.hypot(dX(p.x, bc.x), dY(p.y, bc.y)) < PICKUP_BASE + p.pickupBonus) {
             bc.held = true;
-            bc.vx = 0; bc.vy = 0; bc.wander = 0; bc.ox = 0; bc.oy = 0; bc.z = 0; bc.gx = bc.x; bc.gy = bc.y;
+            bc.vx = 0; bc.vy = 0; bc.wander = 0; bc.ox = 0; bc.oy = 0; bc.otx = 0; bc.oty = 0; bc.z = 0; bc.gx = bc.x; bc.gy = bc.y;
             sfx('item');
             addFx({ kind: 'spark', x: bc.x, y: bc.y, life: 0.6, max: 0.6, r: 44, col: '#ffe066' });
             addPopup(p.x, p.y - 44, '拾取闪光信标！', '#ffe066', true);
         }
     } else {
-        // 漂浮在人物头部附近的随机位置：每 0.7~1.6 秒在头部四周重选一个偏移点，
-        // 再以很快的插值追过去，因此始终紧贴人物、落点又是不固定的
+        // 两层分离：**跟随**跟得快（人物移动时立刻贴上），
+        // **自身漂移**飘得慢（偏移量以约 1 秒的时间常数慢慢变形）。
+        // 方向规则：信号微弱时朝「人物 → 隐藏道具」的大致方向漂，其余时候完全随机。
         bc.wander -= dt;
         if (bc.wander <= 0) {
-            bc.wander = rand(0.7, 1.6);
-            const a = rand(0, Math.PI * 2);
-            const rr = rand(14, BEACON_HEAD_R);
-            bc.ox = Math.cos(a) * rr;
-            bc.oy = Math.sin(a) * rr * 0.8;
+            const weak = world.hidden && beaconSignal() <= BEACON_WEAK_SIG;
+            bc.wander = weak ? rand(0.8, 1.8) : rand(1.5, 3.0);
+            if (weak) {
+                // 微弱：锁定「人物中心 → 埋藏点」这条连线，在指向埋藏点的一侧、约一个身位处漂浮。
+                // 只叠一点垂直抖动，既保持指向性又不像被钉死。
+                const a = Math.atan2(dY(world.hidden.y, p.y - BODY_OFF), dX(world.hidden.x, p.x)) + rand(-BEACON_POINT_JITTER, BEACON_POINT_JITTER);
+                const rr = rand(BEACON_POINT_R * 0.92, BEACON_POINT_R * 1.08);
+                bc.otx = Math.cos(a) * rr;
+                bc.oty = Math.sin(a) * rr;
+            } else {
+                const a = rand(0, Math.PI * 2);
+                const rr = rand(16, BEACON_DRIFT_R);
+                bc.otx = Math.cos(a) * rr;
+                bc.oty = Math.sin(a) * rr * 0.8;
+            }
         }
+        const sk = Math.min(1, dt * 1.2);           // 慢：时间常数 ≈0.83s
+        bc.ox = lerp(bc.ox, bc.otx, sk);
+        bc.oy = lerp(bc.oy, bc.oty, sk);
         const gx = wrapVal(p.x + bc.ox, MAP_W);
-        const gy = wrapVal(p.y - BEACON_HEAD_OFF + bc.oy, MAP_H);
-        const k = Math.min(1, dt * 9);
-        bc.x = wrapVal(bc.x + dX(gx, bc.x) * k, MAP_W);
-        bc.y = wrapVal(bc.y + dY(gy, bc.y) * k, MAP_H);
+        const gy = wrapVal(p.y - BODY_OFF + bc.oy, MAP_H);
+        const fk = Math.min(1, dt * 14);            // 快：紧跟人物移动
+        bc.x = wrapVal(bc.x + dX(gx, bc.x) * fk, MAP_W);
+        bc.y = wrapVal(bc.y + dY(gy, bc.y) * fk, MAP_H);
         bc.gx = bc.x; bc.gy = bc.y;
     }
     if (bc.silent) { bc.flash = Math.max(0, (bc.flash || 0) - dt * 4); return; }
@@ -5715,14 +5751,14 @@ function drawBeacon() {
         for (let i = 0; i < 10; i++) {
             const a = bc.t * 0.55 + i * (Math.PI / 5);
             const len = 44 + 26 * fl + 10 * Math.sin(bc.t * 2 + i);
-            const g = ctx.createLinearGradient(x, cy - 24, x + Math.cos(a) * len, cy - 24 + Math.sin(a) * len);
+            const g = ctx.createLinearGradient(x, cy - 19, x + Math.cos(a) * len, cy - 19 + Math.sin(a) * len);
             g.addColorStop(0, 'rgba(255,232,160,' + (0.30 + 0.30 * fl) + ')');
             g.addColorStop(1, 'rgba(255,190,70,0)');
             ctx.fillStyle = g;
             ctx.beginPath();
-            ctx.moveTo(x + Math.cos(a - 0.12) * 8, cy - 24 + Math.sin(a - 0.12) * 8);
-            ctx.lineTo(x + Math.cos(a) * len, cy - 24 + Math.sin(a) * len);
-            ctx.lineTo(x + Math.cos(a + 0.12) * 8, cy - 24 + Math.sin(a + 0.12) * 8);
+            ctx.moveTo(x + Math.cos(a - 0.12) * 8, cy - 19 + Math.sin(a - 0.12) * 8);
+            ctx.lineTo(x + Math.cos(a) * len, cy - 19 + Math.sin(a) * len);
+            ctx.lineTo(x + Math.cos(a + 0.12) * 8, cy - 19 + Math.sin(a + 0.12) * 8);
             ctx.closePath();
             ctx.fill();
         }
@@ -5733,39 +5769,47 @@ function drawBeacon() {
     ctx.translate(x, cy);
     ctx.scale(1.25, 1.25);
     ctx.translate(-x, -cy);
-    // 棒身
+    // 棒身（较短）
     const bg = ctx.createLinearGradient(x - 3, 0, x + 3, 0);
     bg.addColorStop(0, '#5d6b78');
     bg.addColorStop(0.45, '#e4ecf5');
     bg.addColorStop(1, '#48545f');
     ctx.fillStyle = bg;
-    roundRectPath(x - 3, cy - 22, 6, 26, 2.6);
+    roundRectPath(x - 3, cy - 16, 6, 17, 2.4);
     ctx.fill();
-    ctx.fillStyle = '#3d4854';
-    roundRectPath(x - 6, cy + 2, 12, 4, 1.8);
+    // 底部蓝色封底（原底座）
+    ctx.fillStyle = '#3d7fe0';
+    roundRectPath(x - 5, cy - 3.5, 10, 6.5, 2.6);
+    ctx.fill();
+    ctx.fillStyle = 'rgba(255,255,255,0.32)';
+    roundRectPath(x - 4, cy - 2.8, 8, 2, 1);
+    ctx.fill();
+    ctx.fillStyle = 'rgba(20,50,110,0.45)';
+    roundRectPath(x - 5, cy + 1.4, 10, 1.6, 0.8);
     ctx.fill();
     // 灯头 + 辉光
-    const g = ctx.createRadialGradient(x, cy - 24, 1, x, cy - 24, 30 + 18 * fl);
+    const g = ctx.createRadialGradient(x, cy - 19, 1, x, cy - 19, 30 + 18 * fl);
     g.addColorStop(0, 'rgba(255,255,240,' + (0.35 + 0.65 * fl) + ')');
     g.addColorStop(0.32, 'rgba(255,214,102,' + (0.22 + 0.5 * fl) + ')');
     g.addColorStop(1, 'rgba(255,180,60,0)');
     ctx.fillStyle = g;
     ctx.beginPath();
-    ctx.arc(x, cy - 24, 30 + 18 * fl, 0, Math.PI * 2);
+    ctx.arc(x, cy - 19, 30 + 18 * fl, 0, Math.PI * 2);
     ctx.fill();
     ctx.fillStyle = 'rgba(255,246,200,' + (0.35 + 0.65 * fl) + ')';
     ctx.beginPath();
-    ctx.arc(x, cy - 24, 4.6 + 2 * fl, 0, Math.PI * 2);
+    ctx.arc(x, cy - 19, 4.6 + 2 * fl, 0, Math.PI * 2);
     ctx.fill();
     ctx.restore();
     if (bc.held && !bc.silent) {
         const sig = beaconSignal();
+        const lv = sigLevel(sig);
         ctx.save();
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
         setFont(11, 'bold');
-        ctx.fillStyle = sig > 0.85 ? '#ffe066' : (sig > 0.4 ? '#bff0a8' : 'rgba(200,215,240,0.75)');
-        ctx.fillText(sig > 0.85 ? '信号最强' : (sig > 0.4 ? '信号清晰' : '信号微弱'), x, cy - 46);
+        ctx.fillStyle = lv.col;
+        ctx.fillText(lv.text, x, cy - 46);
         ctx.restore();
     }
 }
