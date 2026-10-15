@@ -1,0 +1,2856 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>街头小霸王</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; user-select: none; }
+        html, body { width: 100%; height: 100%; overflow: hidden; }
+        body {
+            background: #0b1a2f;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-family: 'Courier New', Courier, monospace;
+        }
+        .game-container {
+            background: #1e2f4a;
+            padding: 0;
+            border-radius: 0;
+            box-shadow: none;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            max-width: 100%;
+            max-height: 100%;
+            transition: border-radius 0.2s;
+        }
+        .canvas-wrap {
+            position: relative;
+            width: 100%;
+            max-width: 1280px;
+            line-height: 0;
+        }
+        canvas {
+            display: block;
+            width: 100%;
+            height: auto;
+            aspect-ratio: 1280 / 720;
+            border-radius: 0;
+            box-shadow: none;
+            touch-action: none;
+        }
+        .fullscreen-btn {
+            position: absolute;
+            top: 6px; right: 6px;
+            width: 30px; height: 30px;
+            min-width: 30px; min-height: 30px;
+            border: none;
+            border-radius: 8px;
+            background: rgba(255, 255, 255, 0.08);
+            color: rgba(255, 255, 255, 0.45);
+            display: flex; align-items: center; justify-content: center;
+            cursor: pointer;
+            touch-action: manipulation;
+            -webkit-tap-highlight-color: transparent;
+            backdrop-filter: blur(3px);
+            -webkit-backdrop-filter: blur(3px);
+            transition: background 0.15s, color 0.15s, transform 0.1s;
+            z-index: 10; padding: 0; outline: none;
+        }
+        .fullscreen-btn:hover { background: rgba(255, 255, 255, 0.18); color: rgba(255, 255, 255, 0.8); }
+        .fullscreen-btn:active { background: rgba(255, 255, 255, 0.28); color: #ffffff; transform: scale(0.92); }
+        .fullscreen-btn svg { width: 15px; height: 15px; display: block; pointer-events: none; }
+        @media (max-width: 720px) {
+            .fullscreen-btn { width: 26px; height: 26px; top: 5px; right: 5px; border-radius: 7px; }
+            .fullscreen-btn svg { width: 13px; height: 13px; }
+        }
+        .game-container.is-fullscreen {
+            width: 100vw; height: 100vh;
+            max-width: none; max-height: none;
+            border-radius: 0; padding: 0; background: #000;
+            justify-content: center; align-items: center;
+        }
+        .game-container.is-fullscreen .canvas-wrap {
+            width: 100%; height: 100%; max-width: none;
+            display: flex; align-items: center; justify-content: center;
+        }
+        .game-container.is-fullscreen canvas {
+            width: auto !important;
+            height: auto !important;
+            max-width: 100%;
+            max-height: 100%;
+            aspect-ratio: 1280 / 720;
+            border-radius: 0; box-shadow: none;
+        }
+        .game-container.is-fullscreen .fullscreen-btn {
+            top: 8px; right: 8px;
+            background: rgba(255, 255, 255, 0.10);
+            color: rgba(255, 255, 255, 0.55);
+            z-index: 30;
+        }
+    </style>
+</head>
+<body>
+<div class="game-container" id="gameContainer">
+    <div class="canvas-wrap" id="canvasWrap">
+        <canvas id="gameCanvas" width="1280" height="720"></canvas>
+        <button class="fullscreen-btn" id="fullscreenBtn" aria-label="全屏" title="全屏">
+            <svg id="fsIconExpand" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                 stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M4 9V4h5"/><path d="M20 9V4h-5"/>
+                <path d="M4 15v5h5"/><path d="M20 15v5h-5"/>
+            </svg>
+            <svg id="fsIconCompress" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                 stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"
+                 style="display:none;">
+                <path d="M9 4v5H4"/><path d="M15 4v5h5"/>
+                <path d="M9 20v-5H4"/><path d="M15 20v-5h5"/>
+            </svg>
+        </button>
+    </div>
+</div>
+<script>
+(function() {
+    'use strict';
+
+    const VERSION = '20261010';
+
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+    const container = document.getElementById('gameContainer');
+    const fullscreenBtn = document.getElementById('fullscreenBtn');
+    const fsIconExpand = document.getElementById('fsIconExpand');
+    const fsIconCompress = document.getElementById('fsIconCompress');
+
+    // ==================== 全屏控制 ====================
+    const fullscreenApi = {
+        request: () => {
+            const el = document.documentElement;
+            if (el.requestFullscreen) return el.requestFullscreen();
+            if (el.webkitRequestFullscreen) return el.webkitRequestFullscreen();
+            if (el.msRequestFullscreen) return el.msRequestFullscreen();
+        },
+        exit: () => {
+            if (document.exitFullscreen) return document.exitFullscreen();
+            if (document.webkitExitFullscreen) return document.webkitExitFullscreen();
+            if (document.msExitFullscreen) return document.msExitFullscreen();
+        },
+        isFullscreen: () => !!(document.fullscreenElement || document.webkitFullscreenElement || document.msFullscreenElement)
+    };
+
+    function updateFullscreenButton() {
+        const fs = fullscreenApi.isFullscreen();
+        fsIconExpand.style.display = fs ? 'none' : 'block';
+        fsIconCompress.style.display = fs ? 'block' : 'none';
+        fullscreenBtn.setAttribute('aria-label', fs ? '退出全屏' : '全屏');
+        fullscreenBtn.setAttribute('title', fs ? '退出全屏' : '全屏');
+    }
+
+    function toggleFullscreen() {
+        if (fullscreenApi.isFullscreen()) fullscreenApi.exit();
+        else fullscreenApi.request();
+    }
+
+    fullscreenBtn.addEventListener('click', (e) => { e.preventDefault(); e.stopPropagation(); toggleFullscreen(); });
+    fullscreenBtn.addEventListener('touchstart', (e) => e.stopPropagation(), { passive: true });
+    fullscreenBtn.addEventListener('touchend', (e) => e.stopPropagation(), { passive: true });
+
+    function onFullscreenChange() {
+        container.classList.toggle('is-fullscreen', fullscreenApi.isFullscreen());
+        updateFullscreenButton();
+        setTimeout(scheduleResize, 60);
+        setTimeout(scheduleResize, 200);
+        setTimeout(scheduleResize, 500);
+    }
+    document.addEventListener('fullscreenchange', onFullscreenChange);
+    document.addEventListener('webkitfullscreenchange', onFullscreenChange);
+    document.addEventListener('msfullscreenchange', onFullscreenChange);
+
+    // ==================== 画布适配 ====================
+    function applyCanvasTransform() {
+        ctx.setTransform(canvas.width / W, 0, 0, canvas.height / H, 0, 0);
+    }
+
+    function resizeCanvas() {
+        const dpr = window.devicePixelRatio || 1;
+        const availWidth = window.innerWidth;
+        const availHeight = window.innerHeight;
+        const availWidthFromHeight = availHeight * (W / H);
+        let cssW = Math.min(availWidth, availWidthFromHeight);
+        if (!fullscreenApi.isFullscreen()) cssW = Math.min(cssW, 1280);
+        if (!isFinite(cssW) || cssW < 100) cssW = Math.max(100, Math.min(availWidth, 1280));
+        const cssH = cssW * (H / W);
+        canvas.style.width = cssW + 'px';
+        canvas.style.height = cssH + 'px';
+        canvas.width = Math.round(cssW * dpr);
+        canvas.height = Math.round(cssH * dpr);
+        applyCanvasTransform();
+    }
+
+    let resizeScheduled = false;
+    function scheduleResize() {
+        if (resizeScheduled) return;
+        resizeScheduled = true;
+        requestAnimationFrame(() => { resizeScheduled = false; resizeCanvas(); });
+    }
+    window.addEventListener('resize', scheduleResize);
+    window.addEventListener('orientationchange', () => { setTimeout(scheduleResize, 120); setTimeout(scheduleResize, 350); });
+    if (window.visualViewport) window.visualViewport.addEventListener('resize', scheduleResize);
+
+    // ==================== 常量 ====================
+    const W = 1280, H = 720;
+    const HUD_H = 72;
+
+    const GRAVITY = 2600;
+    const HOLD_GRAVITY = GRAVITY * 0.55;
+    const JUMP_MAX = 185;
+    const JUMP_V = Math.sqrt(2 * HOLD_GRAVITY * JUMP_MAX);
+    const RELEASE_DECAY = 12;
+
+    const MOVE_X = 300;
+    const PLAYER_SPEED = MOVE_X * 0.7;       // 主角移速（敌人 AI 仍用 MOVE_X）
+    const MOVE_DEPTH = 0.95;
+
+    const WALK_RATE = 11;          // 行走动画基准播放速度（rad/s）
+    const WALK_MATCH = 0.60;       // 步频向"物理匹配值"靠拢的比例（见 walkRate）
+
+    const LAND_T = 0.26;             // 落地缓冲动作时长
+
+    const FIG_BASE = 150;            // 原始基准身高（比例换算用）
+    const FIG_H = FIG_BASE * 1.5;    // 人物显示比例：整体放大 1.5 倍
+    const FIG_K = FIG_H / FIG_BASE;  // 放大倍率
+    const FIG_W = 99;
+
+    const STAGE_L = 80, STAGE_R = W - 80;
+    const DEPTH_MIN = 0.06, DEPTH_MAX = 0.94;
+
+    const FIG_COLORS = {
+        player: { skin: '#ffdcb8', skinDark: '#e0b08a', hair: '#2b2b2b', shirt: '#3b9ddd', shirtDark: '#2a6ea8', pants: '#1f4a63', pantsDark: '#173a4f', shoe: '#e84c3d', shoeDark: '#b83a2d', belt: '#f39c12' },
+        foe1: { skin: '#e8b98c', skinDark: '#c99468', hair: '#7a2f22', shirt: '#e05252', shirtDark: '#a83a3a', pants: '#3a3a4c', pantsDark: '#2c2c3b', shoe: '#2b2b2b', shoeDark: '#181818', belt: '#d8d8d8' },
+        foe2: { skin: '#c98f5f', skinDark: '#a9724a', hair: '#161616', shirt: '#8250d8', shirtDark: '#5f34a8', pants: '#2b2b3c', pantsDark: '#21212f', shoe: '#f0f0f0', shoeDark: '#c4c4c4', belt: '#ffd966' }
+    };
+
+    // 外观差异：发型 / 服装款式 / 手部 / 体格
+    const CHAR_STYLE = {
+        player: {
+            hair: 'spike', headband: '#e84c3d',
+            shirtStyle: 'tee', cuffCol: '#f5f6fa',
+            hand: 'wrap', handCol: '#f5f6fa',
+            brow: 0.35, scar: false, tattoo: false, mask: false,
+            shoeAccent: '#ffffff', build: 1.00, height: 1.00, headW: 0.88, neck: 0.60
+        },
+        foe1: {
+            hair: 'buzz', headband: null,
+            shirtStyle: 'tank', cuffCol: null,
+            hand: 'bare', handCol: null,
+            brow: 0.95, scar: true, tattoo: true, mask: false,
+            shoeAccent: '#6b6b6b', build: 1.12, height: 0.98
+        },
+        foe2: {
+            hair: 'mohawk', headband: null,
+            shirtStyle: 'jacket', cuffCol: '#3d2a63',
+            hand: 'glove', handCol: '#2b2b3c',
+            brow: 0.65, scar: false, tattoo: false, mask: true,
+            shoeAccent: '#8250d8', build: 0.94, height: 0.96
+        }
+    };
+
+    const MOVES = {
+        punch: { label: '拳', key: 'J', windup: 0.05, active: 0.07, rec: 0.12, dmg: 5, range: 129, dtol: 0.21, hy: 0.55, kbx: 170, kby: 0, lift: 0, cd: 0.26, kind: 'jab' },
+        kick: { label: '脚', key: 'L', windup: 0.15, active: 0.10, rec: 0.28, dmg: 12, range: 177, dtol: 0.23, hy: 0.40, kbx: 340, kby: 0, lift: 135, cd: 0.70, kind: 'kick' },
+        rise: { label: '升龙', key: 'I', windup: 0.13, active: 0.12, rec: 0.34, dmg: 17, range: 144, dtol: 0.25, hy: 0.72, kbx: 130, kby: 0, lift: 637, cd: 2.20, kind: 'rise' }
+    };
+
+    // 测试阶段敌人强度调节：数值越小敌人越弱
+    const AI = {
+        speedMul: 0.42,        // 敌人移动速度倍率
+        reactMin: 1.6,         // 靠近决策间隔下限（秒）
+        reactMax: 3.2,         // 靠近决策间隔上限（秒）
+        strafeMin: 1.4,        // 游走决策间隔下限（秒）
+        strafeMax: 2.8,        // 游走决策间隔上限（秒）
+        attackChance: 0.40,    // 够得着时出招的概率
+        punchRatio: 0.72,      // 出招时拳的占比
+        kickRatio: 0.95,       // 出招时拳+脚的占比（其余为升龙）
+        strafeChance: 0.45,    // 不出招时转游走的概率
+        jumpChance: 0.06       // 待机乱跳频率（每秒）
+    };
+
+    // ==================== 状态 ====================
+    let player = null;
+    let foes = [];
+    let particles = [];
+    let floaters = [];
+    let impacts = [];
+    let shake = 0;
+    let hitStop = 0;
+    let score = 0;
+    let combo = 0;
+    let comboTimer = 0;
+    let wave = 1;
+    let gameOver = false;
+    let overTimer = 0;
+    let atkToken = null;
+    let bgSeed = Math.random() * 1000;
+    let clock = 0;
+    let hintTimer = 9;
+
+    const keys = {};
+    // 攻击键只在“按下瞬间”响应一次，按住不连发
+    const keyPressed = { KeyJ: false, KeyL: false, KeyI: false };
+
+    // ==================== 工具 ====================
+    function hash(n) {
+        const x = Math.sin(n * 127.1 + 311.7) * 43758.5453;
+        return x - Math.floor(x);
+    }
+
+    function clamp(v, a, b) { return v < a ? a : (v > b ? b : v); }
+
+    function rand(a, b) { return a + Math.random() * (b - a); }
+
+    function roundRectPath(x, y, w, h, r) {
+        r = Math.min(r, w / 2, h / 2);
+        ctx.beginPath();
+        ctx.moveTo(x + r, y);
+        ctx.arcTo(x + w, y, x + w, y + h, r);
+        ctx.arcTo(x + w, y + h, x, y + h, r);
+        ctx.arcTo(x, y + h, x, y, r);
+        ctx.arcTo(x, y, x + w, y, r);
+        ctx.closePath();
+    }
+
+    // 舞台纵深：depth 0 = 最靠近镜头（画面下方），depth 1 = 最远（画面上方）
+    const BELT_FRONT = 686;
+    const BELT_BACK = 452;
+    const DEPTH_SPAN = BELT_FRONT - BELT_BACK;
+
+    function depthY(d) { return BELT_FRONT - d * DEPTH_SPAN; }
+
+    function depthScale(d) { return 1 - d * 0.17; }
+
+    // ==================== 音频 ====================
+    let audioCtx = null;
+    function ensureAudio() {
+        if (!audioCtx) {
+            try { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { audioCtx = null; }
+        }
+        if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+    }
+
+    function tone(type, f0, f1, dur, vol, delay) {
+        ensureAudio();
+        if (!audioCtx) return;
+        const t = audioCtx.currentTime + (delay || 0);
+        const osc = audioCtx.createOscillator();
+        const g = audioCtx.createGain();
+        osc.type = type;
+        osc.frequency.setValueAtTime(f0, t);
+        if (f1 !== f0) osc.frequency.exponentialRampToValueAtTime(Math.max(1, f1), t + dur);
+        g.gain.setValueAtTime(0.0001, t);
+        g.gain.exponentialRampToValueAtTime(vol, t + 0.008);
+        g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+        osc.connect(g);
+        g.connect(audioCtx.destination);
+        osc.start(t);
+        osc.stop(t + dur + 0.02);
+    }
+
+    function noiseHit(dur, vol, freq) {
+        ensureAudio();
+        if (!audioCtx) return;
+        const t = audioCtx.currentTime;
+        const len = Math.max(0.05, dur);
+        const buf = audioCtx.createBuffer(1, Math.floor(audioCtx.sampleRate * len), audioCtx.sampleRate);
+        const d = buf.getChannelData(0);
+        for (let i = 0; i < d.length; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / d.length);
+        const src = audioCtx.createBufferSource();
+        src.buffer = buf;
+        const f = audioCtx.createBiquadFilter();
+        f.type = 'bandpass';
+        f.frequency.value = freq;
+        f.Q.value = 0.9;
+        const g = audioCtx.createGain();
+        g.gain.setValueAtTime(vol, t);
+        g.gain.exponentialRampToValueAtTime(0.0001, t + len);
+        src.connect(f); f.connect(g); g.connect(audioCtx.destination);
+        src.start(t);
+        src.stop(t + len + 0.02);
+    }
+
+    function sfxWhoosh() { noiseHit(0.13, 0.13, 1500); }
+    function sfxHitLight() { noiseHit(0.10, 0.22, 900); tone('triangle', 220, 120, 0.09, 0.10); }
+    function sfxHitHeavy() { noiseHit(0.20, 0.30, 520); tone('sine', 150, 55, 0.22, 0.20); }
+    function sfxJump() { tone('square', 300, 720, 0.11, 0.07); }
+    function sfxLand() { tone('sine', 130, 70, 0.09, 0.09); }
+    function sfxHurt() { tone('sawtooth', 420, 160, 0.16, 0.11); }
+    function sfxKO() {
+        tone('sawtooth', 500, 90, 0.42, 0.16);
+        tone('square', 240, 60, 0.46, 0.10, 0.05);
+        noiseHit(0.34, 0.20, 380);
+    }
+    function sfxReady() { tone('sine', 700, 1050, 0.10, 0.07); }
+
+    // ==================== 角色构建 ====================
+    function makeFighter(kind, x, depth, hp) {
+        return {
+            kind: kind,
+            col: FIG_COLORS[kind],
+            style: CHAR_STYLE[kind],
+            x: x, depth: depth, alt: 0, vy: 0,
+            vx: 0, vDepth: 0,
+            facing: kind === 'player' ? 1 : -1,
+            hp: hp, maxHp: hp,
+            airborne: false, squash: 0, landT: 0,
+            jumpHeld: false, jumpCut: false, jumpAge: 0,
+            atk: null, atkT: 0, hitIds: null, impactDone: true,
+            hurtT: 0, invuln: 0, flash: 0, koT: 0, dead: false, landed: true,
+            entering: false, enterX: 0,
+            walkPhase: 0, depthPhase: 0,
+            cooldowns: { punch: 0, kick: 0, rise: 0 },
+            bob: Math.random() * Math.PI * 2,
+            aiMode: 'approach', aiTimer: rand(AI.reactMin, AI.reactMax), aiStrafeDir: 1
+        };
+    }
+
+    function resetGame() {
+        player = makeFighter('player', 380, 0.5, 140);
+        foes = [
+            makeFighter('foe1', 860, 0.35, 60),
+            makeFighter('foe2', 1000, 0.7, 60)
+        ];
+        particles = [];
+        floaters = [];
+        impacts = [];
+        shake = 0; hitStop = 0;
+        score = 0; combo = 0; comboTimer = 0;
+        wave = 1; gameOver = false; overTimer = 0;
+        atkToken = null;
+        bgSeed = Math.random() * 1000;
+        hintTimer = 9;
+        // 开局也让敌人从画面外进场
+        for (let i = 0; i < foes.length; i++) spawnFoe(foes[i], true);
+    }
+
+    function spawnFoe(f, silent) {
+        // 从屏幕左右两侧外面进场，走到位后再加入战斗
+        const side = Math.random() < 0.5 ? -1 : 1;
+        const entryX = side < 0 ? -FIG_H * 0.9 : W + FIG_H * 0.9;
+        const landX = clamp(player.x + side * rand(360, 520), STAGE_L + 70, STAGE_R - 70);
+        f.x = entryX;
+        f.enterX = landX;
+        f.entering = true;
+        f.landed = true;
+        f.depth = clamp(player.depth + rand(-0.14, 0.14), DEPTH_MIN, DEPTH_MAX);
+        f.alt = 0; f.vy = 0; f.vx = 0; f.vDepth = 0;
+        f.hp = 45 + wave * 4;
+        f.maxHp = f.hp;
+        f.dead = false; f.koT = 0; f.hurtT = 0; f.invuln = 0; f.flash = 0;
+        f.atk = null; f.atkT = 0; f.hitIds = null; f.impactDone = true;
+        f.cooldowns.punch = 0; f.cooldowns.kick = 0; f.cooldowns.rise = 0;
+        f.walkPhase = rand(0, 6.28);
+        f.facing = side < 0 ? 1 : -1;
+        f.aiMode = 'approach';
+        f.aiTimer = rand(AI.reactMin, AI.reactMax) + rand(0.2, 0.6);
+        if (!silent) sfxReady();
+    }
+
+    // ==================== 战斗 ====================
+    function startAttack(f, moveName) {
+        if (f.dead || f.hurtT > 0 || f.atk) return false;
+        const mv = MOVES[moveName];
+        if (!mv) return false;
+        if (f.cooldowns[moveName] > 0) return false;
+        if (f.kind !== 'player' && atkToken && atkToken !== f) return false;
+
+        // 出招时自动朝向最近的敌人
+        const target = nearestFoe(f.x);
+        if (target) f.facing = target.x >= f.x ? 1 : -1;
+
+        f.atk = moveName;
+        f.atkT = 0;
+        f.hitIds = [];
+        f.impactDone = false;
+        f.cooldowns[moveName] = mv.cd;
+        if (f.kind !== 'player') atkToken = f;
+        if (moveName === 'rise' && !f.airborne) {
+            f.vy = -JUMP_V * 0.72;
+            f.airborne = true;
+            f.jumpCut = false;
+            f.jumpAge = 0;
+        }
+        sfxWhoosh();
+        return true;
+    }
+
+    function attackPhase(f) {
+        if (!f.atk) return 'none';
+        const mv = MOVES[f.atk];
+        if (f.atkT < mv.windup) return 'windup';
+        if (f.atkT < mv.windup + mv.active) return 'active';
+        if (f.atkT < mv.windup + mv.active + mv.rec) return 'recover';
+        return 'done';
+    }
+
+    function updateAttack(f, dt) {
+        if (!f.atk) return;
+        f.atkT += dt;
+        const ph = attackPhase(f);
+        if (ph === 'active') {
+            const mv = MOVES[f.atk];
+            const targets = f.kind === 'player' ? foes : [player];
+            for (let i = 0; i < targets.length; i++) {
+                const t = targets[i];
+                if (!t || t.dead || t.entering) continue;
+                if (f.hitIds.indexOf(t) >= 0) continue;
+                if (tryHit(f, t, mv)) f.hitIds.push(t);
+            }
+        }
+        if (ph === 'done') {
+            f.atk = null;
+            f.atkT = 0;
+            f.hitIds = null;
+            if (atkToken === f) atkToken = null;
+        }
+    }
+
+    function tryHit(att, tgt, mv) {
+        if (tgt.entering) return false;   // 入场动画中不可被打中
+        const dx = tgt.x - att.x;
+        const adx = Math.abs(dx);
+        if (adx > mv.range) return false;
+        if (dx * att.facing <= 0) return false;
+
+        // 必须处于同一水平线（纵深接近）
+        if (Math.abs(tgt.depth - att.depth) > mv.dtol) return false;
+
+        // 攻击带（垂直方向）必须与对方身体重叠
+        const sAtt = depthScale(att.depth);
+        const sTgt = depthScale(tgt.depth);
+        const attGroundY = depthY(att.depth);
+        const hitY = attGroundY - att.alt - FIG_H * sAtt * mv.hy;
+        const strikeTop = hitY - FIG_H * sAtt * 0.30;
+        // 滞空时攻击带向下延伸至地面，使跳跃攻击能打中站桩对手
+        const strikeBot = att.airborne
+            ? attGroundY + FIG_H * sAtt * 0.06
+            : hitY + FIG_H * sAtt * 0.10;
+
+        const tgtFeetY = depthY(tgt.depth) - tgt.alt;
+        const bodyTop = tgtFeetY - FIG_H * sTgt * 1.02;
+        const bodyBot = tgtFeetY + FIG_H * sTgt * 0.06;
+        if (strikeBot < bodyTop - 4 || strikeTop > bodyBot + 4) return false;
+
+        applyHit(tgt, mv, att.facing);
+        return true;
+    }
+
+    function applyHit(tgt, mv, dir) {
+        // 无敌帧：避免被两个敌人连续硬直锁死
+        if (tgt.invuln > 0) return;
+        tgt.hp -= mv.dmg;
+        tgt.hurtT = mv.kind === 'rise' ? 0.34 : (mv.kind === 'kick' ? 0.22 : 0.15);
+        tgt.invuln = mv.kind === 'rise' ? 0.75 : (mv.kind === 'kick' ? 0.50 : 0.32);
+        tgt.flash = 0.16;
+        tgt.vx = dir * mv.kbx;
+        if (mv.lift > 0) {
+            tgt.vy = -mv.lift;
+            tgt.airborne = true;
+            tgt.jumpCut = true;
+            tgt.jumpAge = 1;
+        }
+        if (tgt.atk) { tgt.atk = null; tgt.atkT = 0; tgt.hitIds = null; }
+        if (atkToken === tgt) atkToken = null;
+
+        const cx = tgt.x - dir * FIG_H * 0.12;
+        const cy = depthY(tgt.depth) - tgt.alt - FIG_H * depthScale(tgt.depth) * 0.6;
+        spawnHitSpark(cx, cy, mv.kind);
+        floaters.push({ x: tgt.x, depth: tgt.depth, alt: tgt.alt, text: '-' + mv.dmg, life: 0.9, vy: -70, color: mv.kind === 'rise' ? '#ff9ff3' : '#ffd966' });
+
+        shake = Math.min(16, shake + (mv.kind === 'rise' ? 15 : mv.kind === 'kick' ? 9 : 4));
+        hitStop = Math.max(hitStop, mv.kind === 'rise' ? 0.13 : mv.kind === 'kick' ? 0.08 : 0.04);
+
+        if (tgt.kind === 'player') {
+            combo = 0;
+            sfxHurt();
+            if (tgt.hp <= 0) killFighter(tgt);
+            else sfxHitLight();
+        } else {
+            combo++;
+            comboTimer = 1.6;
+            score += mv.dmg * 10 * Math.min(5, combo);
+            sfxHitHeavy();
+            if (tgt.hp <= 0) killFighter(tgt);
+        }
+    }
+
+    function killFighter(f) {
+        f.hp = 0;
+        f.dead = true;
+        f.koT = 0;
+        f.invuln = 0;
+        f.atk = null; f.atkT = 0; f.hitIds = null; f.impactDone = true;
+        f.flash = 0;
+        f.entering = false;
+        f.vDepth = 0;
+        // 空中被打死：取消跳跃截断，直接重力落地，避免慢慢漂移
+        if (f.airborne) { f.jumpCut = false; f.jumpHeld = false; }
+        f.landed = !f.airborne;
+        if (atkToken === f) atkToken = null;
+        sfxKO();
+        shake = Math.min(20, shake + 12);
+        const cy = depthY(f.depth) - f.alt - FIG_H * depthScale(f.depth) * 0.5;
+        for (let i = 0; i < 16; i++) spawnHitSpark(f.x, cy, 'star');
+        if (f.kind === 'player') {
+            gameOver = true;
+            overTimer = 0;
+        } else {
+            score += 300;
+            wave++;
+        }
+    }
+
+    function nearestFoe(x) {
+        let best = null, bd = Infinity;
+        for (let i = 0; i < foes.length; i++) {
+            const f = foes[i];
+            if (f.dead || f.entering) continue;
+            const d = Math.abs(f.x - x);
+            if (d < bd) { bd = d; best = f; }
+        }
+        return best;
+    }
+
+    // 视线目标：让角色的眼睛看向对手
+    function lookTargetX(f) {
+        if (f.kind === 'player') {
+            const t = nearestFoe(f.x);
+            return t ? t.x : f.x + f.facing * FIG_H * 0.4;
+        }
+        return (player && !player.dead) ? player.x : f.x + f.facing * FIG_H * 0.4;
+    }
+
+    // 出招部位（拳/脚）打击特效
+    const STRIKE = {
+        jab: { r: 26, col: '#fff3c4', rays: 7 },
+        kick: { r: 40, col: '#ffd966', rays: 10 },
+        rise: { r: 46, col: '#ff9ff3', rays: 12 }
+    };
+
+    function spawnStrikeFx(f, mv, wx, wy) {
+        const cfg = STRIKE[mv.kind] || STRIKE.jab;
+        const s = depthScale(f.depth);
+        const x = wx, y = wy;
+        impacts.push({
+            x: x, y: y, dir: f.facing, t: 0, life: 0.30,
+            r: cfg.r * FIG_K * s * 0.62, col: cfg.col, rays: cfg.rays,
+            big: mv.kind !== 'jab', seed: Math.random() * Math.PI * 2
+        });
+        // 细碎火星沿出拳方向甩出
+        const n = mv.kind === 'jab' ? 5 : 9;
+        for (let i = 0; i < n; i++) {
+            const a = rand(-0.9, 0.9);
+            const spd = rand(70, 210) * (mv.kind === 'jab' ? 0.7 : 1.25);
+            particles.push({
+                x: x, y: y,
+                vx: f.facing * Math.cos(a) * spd,
+                vy: Math.sin(a) * spd * 0.8 - rand(20, 70),
+                r: rand(1.8, mv.kind === 'jab' ? 3.8 : 5.4),
+                life: rand(0.14, 0.30), max: 0.32,
+                col: cfg.col, grav: 700
+            });
+        }
+    }
+
+    function updateImpacts(dt) {
+        for (let i = impacts.length - 1; i >= 0; i--) {
+            impacts[i].t += dt;
+            if (impacts[i].t >= impacts[i].life) impacts.splice(i, 1);
+        }
+    }
+
+    function drawImpacts() {
+        for (let i = 0; i < impacts.length; i++) {
+            const q = impacts[i];
+            const p = q.t / q.life;
+            const e = 1 - Math.pow(1 - p, 2.2);          // 快速弹出后缓慢消散
+            const a = clamp(1 - p, 0, 1);
+            const r = q.r * (0.42 + 0.85 * e);
+            ctx.save();
+            ctx.translate(q.x, q.y);
+            ctx.globalCompositeOperation = 'lighter';
+            ctx.lineCap = 'round';
+
+            // 放射状冲击线
+            ctx.strokeStyle = q.col;
+            ctx.globalAlpha = a * 0.85;
+            ctx.lineWidth = Math.max(1, q.r * 0.14 * a);
+            for (let k = 0; k < q.rays; k++) {
+                const ang = q.seed + (k / q.rays) * Math.PI * 2 + Math.sin(q.seed + k) * 0.16;
+                const r0 = r * (0.55 + 0.18 * Math.sin(k * 2.3 + q.seed * 3));
+                const r1 = r * (1.0 + (q.big ? 0.55 : 0.32));
+                ctx.beginPath();
+                ctx.moveTo(Math.cos(ang) * r0, Math.sin(ang) * r0);
+                ctx.lineTo(Math.cos(ang) * r1, Math.sin(ang) * r1);
+                ctx.stroke();
+            }
+
+            // 扩散冲击环
+            ctx.globalAlpha = a * (q.big ? 0.9 : 0.75);
+            ctx.strokeStyle = q.col;
+            ctx.lineWidth = Math.max(1, q.r * 0.18 * a);
+            ctx.beginPath();
+            ctx.ellipse(0, 0, r * 0.92, r * (q.big ? 0.86 : 0.92), 0, 0, Math.PI * 2);
+            ctx.stroke();
+
+            // 拳/脚前方的弧形残影
+            ctx.globalAlpha = a * 0.5;
+            ctx.lineWidth = Math.max(1, q.r * 0.30 * a);
+            ctx.strokeStyle = q.col;
+            ctx.beginPath();
+            ctx.arc(-q.dir * r * 0.18, 0, r * 0.78, -1.15, 1.15, q.dir < 0);
+            ctx.stroke();
+
+            // 中心闪点
+            ctx.globalAlpha = Math.pow(a, 2);
+            ctx.fillStyle = '#ffffff';
+            ctx.beginPath();
+            ctx.arc(0, 0, r * 0.30 * a + 1.5, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.restore();
+        }
+        ctx.globalAlpha = 1;
+        ctx.globalCompositeOperation = 'source-over';
+    }
+
+    function spawnHitSpark(x, y, kind) {
+        const n = kind === 'rise' ? 16 : (kind === 'kick' ? 12 : 7);
+        for (let i = 0; i < n; i++) {
+            const ang = Math.random() * Math.PI * 2;
+            const spd = rand(60, kind === 'rise' ? 300 : 210);
+            particles.push({
+                x: x, y: y, vx: Math.cos(ang) * spd, vy: Math.sin(ang) * spd * 0.7 - rand(20, 90),
+                r: rand(2.5, kind === 'rise' ? 7 : 5.5), life: rand(0.22, 0.5), max: 0.5,
+                col: kind === 'rise' ? '#ff9ff3' : (kind === 'kick' ? '#ffd966' : '#fff3c4'),
+                grav: 900
+            });
+        }
+    }
+
+    // ==================== 移动与跳跃 ====================
+    // 步幅：随水平速度增长，纵向游走/近身小步时收紧，避免原地跨大步
+    function walkStride(f) {
+        const h = FIG_H * depthScale(f.depth) * (f.style.height || 1);
+        const hFrac = clamp(Math.abs(f.vx) / (MOVE_X * 0.30), 0, 1);
+        return h * 0.108 * (0.42 + 0.58 * hFrac);
+    }
+
+    // 步频：脚在支撑期是相对身体往后撤的，撤的总量 = 2 × 步幅；
+    // 同一段时间身体往前走了 v·π/rate。两者相等时脚正好"钉在地上"不滑，
+    // 解出的物理匹配步频就是 π·v/(2·步幅)。这里让播放速度按 WALK_MATCH 的比例朝它靠拢：
+    // 走得越快，腿摆得越快，脚与地面的关系越贴合；全额匹配在满速下步频过高，故只取一部分。
+    function walkRate(f) {
+        const spd = Math.abs(f.vx);
+        const phys = Math.PI * spd / (2 * Math.max(walkStride(f), 1));
+        return WALK_RATE * (1 - WALK_MATCH) + phys * WALK_MATCH;
+    }
+
+    function tryJump(f) {
+        if (f.dead || f.airborne || f.hurtT > 0 || f.atk) return;
+        f.airborne = true;
+        f.vy = -JUMP_V;
+        f.jumpCut = false;
+        f.jumpAge = 0;
+        sfxJump();
+    }
+
+    function updateMotion(f, dt) {
+        // 水平
+        f.x += f.vx * dt;
+        if (!f.airborne) f.vx *= Math.pow(0.0006, dt);
+        // 入场阶段允许停留在画面外，其余情况限制在舞台内
+        if (!f.entering) {
+            if (f.x < STAGE_L) { f.x = STAGE_L; if (f.vx < 0) f.vx = 0; }
+            if (f.x > STAGE_R) { f.x = STAGE_R; if (f.vx > 0) f.vx = 0; }
+        }
+
+        // 纵深
+        f.depth += f.vDepth * dt;
+        if (f.depth < DEPTH_MIN) { f.depth = DEPTH_MIN; if (f.vDepth < 0) f.vDepth = 0; }
+        if (f.depth > DEPTH_MAX) { f.depth = DEPTH_MAX; if (f.vDepth > 0) f.vDepth = 0; }
+
+        // 垂直（可变跳跃高度）
+        if (f.airborne) {
+            f.jumpAge += dt;
+            const rising = f.vy < 0;
+            if (rising && !f.jumpHeld && f.jumpAge > 0.05) f.jumpCut = true;
+            const thrusting = rising && !f.jumpCut && f.alt < JUMP_MAX;
+            if (thrusting) {
+                f.alt += -f.vy * dt - 0.5 * HOLD_GRAVITY * dt * dt;
+                f.vy += HOLD_GRAVITY * dt;
+            } else {
+                if (rising && f.jumpCut) {
+                    f.vy *= Math.exp(-RELEASE_DECAY * dt);
+                    if (f.vy > -1) f.vy = 0;
+                }
+                f.alt += -f.vy * dt - 0.5 * GRAVITY * dt * dt;
+                f.vy += GRAVITY * dt;
+            }
+            if (f.alt <= 0) {
+                const hard = f.vy > 900;
+                f.alt = 0; f.vy = 0; f.airborne = false;
+                f.jumpCut = false; f.jumpAge = 0;
+                f.squash = hard ? 1 : 0.5;
+                f.landT = LAND_T * (hard ? 1 : 0.85);   // 落地缓冲动作
+                sfxLand();
+            }
+        } else {
+            f.alt = 0;
+            f.vy = 0;
+            if (f.squash > 0) f.squash -= dt * 4;
+            if (f.landT > 0) f.landT -= dt;
+        }
+
+        if (f.hurtT > 0) f.hurtT -= dt;
+        if (f.invuln > 0) f.invuln -= dt;
+        if (f.flash > 0) f.flash -= dt;
+        f.bob += dt;
+    }
+
+    function faceByInput(f, dx, dDepth) {
+        if (Math.abs(dx) > 0.01) f.facing = dx > 0 ? 1 : -1;
+        else if (Math.abs(dDepth) > 0.01 && f.kind === 'player') f.facing = 1;
+    }
+
+    // ==================== 玩家输入 ====================
+    const touchStates = new Map();
+    let touchLeft = false, touchRight = false, touchUp = false, touchDown = false;
+    let touchJump = false, touchPunch = false, touchKick = false, touchRise = false;
+
+    function touchActionFromPoint(clientX, clientY) {
+        const rect = canvas.getBoundingClientRect();
+        if (rect.width <= 0 || rect.height <= 0) return null;
+        const lx = (clientX - rect.left) * (W / rect.width);
+        const ly = (clientY - rect.top) * (H / rect.height);
+        if (lx < 0 || lx >= W || ly < 0 || ly >= H) return null;
+        if (lx < W * 0.5) {
+            if (ly > H * 0.58) return lx < W * 0.25 ? 'left' : 'right';
+            return lx < W * 0.25 ? 'up' : 'down';
+        }
+        const rx = (lx - W * 0.5) / (W * 0.5);
+        const ry = ly / H;
+        if (ry > 0.66) return 'jump';
+        if (ry > 0.33) return 'punch';
+        return rx > 0.62 ? 'rise' : 'kick';
+    }
+
+    function refreshTouchFlags() {
+        touchLeft = touchRight = touchUp = touchDown = false;
+        touchJump = touchPunch = touchKick = touchRise = false;
+        for (const s of touchStates.values()) {
+            const a = s.action;
+            if (a === 'left') touchLeft = true;
+            else if (a === 'right') touchRight = true;
+            else if (a === 'up') touchUp = true;
+            else if (a === 'down') touchDown = true;
+            else if (a === 'jump') touchJump = true;
+            else if (a === 'punch') touchPunch = true;
+            else if (a === 'kick') touchKick = true;
+            else if (a === 'rise') touchRise = true;
+        }
+    }
+
+    canvas.addEventListener('touchstart', (e) => {
+        let consumed = false;
+        ensureAudio();
+        for (let i = 0; i < e.changedTouches.length; i++) {
+            const t = e.changedTouches[i];
+            const a = touchActionFromPoint(t.clientX, t.clientY);
+            if (!a) continue;
+            consumed = true;
+            touchStates.set(t.identifier, { action: a });
+            if (a === 'jump') tryJump(player);
+            else if (a === 'punch') startAttack(player, 'punch');
+            else if (a === 'kick') startAttack(player, 'kick');
+            else if (a === 'rise') startAttack(player, 'rise');
+        }
+        if (consumed) { e.preventDefault(); refreshTouchFlags(); }
+    }, { passive: false });
+
+    canvas.addEventListener('touchmove', (e) => {
+        let changed = false;
+        for (let i = 0; i < e.changedTouches.length; i++) {
+            const t = e.changedTouches[i];
+            if (!touchStates.has(t.identifier)) continue;
+            const a = touchActionFromPoint(t.clientX, t.clientY);
+            if (!a) continue;
+            const prev = touchStates.get(t.identifier);
+            if (prev.action !== a) { prev.action = a; changed = true; }
+        }
+        if (changed) { e.preventDefault(); refreshTouchFlags(); }
+    }, { passive: false });
+
+    function onTouchEnd(e) {
+        let changed = false;
+        for (let i = 0; i < e.changedTouches.length; i++) {
+            const t = e.changedTouches[i];
+            if (touchStates.has(t.identifier)) { touchStates.delete(t.identifier); changed = true; }
+        }
+        if (changed) { e.preventDefault(); refreshTouchFlags(); }
+    }
+    canvas.addEventListener('touchend', onTouchEnd, { passive: false });
+    canvas.addEventListener('touchcancel', onTouchEnd, { passive: false });
+
+    window.addEventListener('keydown', (e) => {
+        const c = e.code;
+        if (c === 'ArrowLeft' || c === 'ArrowRight' || c === 'ArrowUp' || c === 'ArrowDown') e.preventDefault();
+        ensureAudio();
+        if (gameOver && (c === 'Enter' || c === 'KeyR')) { resetGame(); return; }
+        keys[c] = true;
+        if (!e.repeat) {
+            if (c === 'KeyK') tryJump(player);
+            if (c in keyPressed) keyPressed[c] = true;
+        }
+    });
+    window.addEventListener('keyup', (e) => { keys[e.code] = false; });
+
+    const kLeft = () => !!(keys['ArrowLeft'] || keys['KeyA']);
+    const kRight = () => !!(keys['ArrowRight'] || keys['KeyD']);
+    const kUp = () => !!(keys['ArrowUp'] || keys['KeyW']);
+    const kDown = () => !!(keys['ArrowDown'] || keys['KeyS']);
+    const kJump = () => !!keys['KeyK'];
+
+    // ==================== 手柄 ====================
+    let padIndex = -1, padConnected = false;
+    let padL = false, padR = false, padU = false, padD = false;
+    let padA = false, padX = false, padY = false, padB = false, padStart = false;
+    let prevA = false, prevX = false, prevB = false, prevY = false, prevStart = false;
+
+    function pollGamepad() {
+        const pads = navigator.getGamepads ? navigator.getGamepads() : [];
+        let gp = null;
+        for (let i = 0; i < pads.length; i++) {
+            if (pads[i] && pads[i].connected) { gp = pads[i]; padIndex = i; break; }
+        }
+        if (gp && !padConnected) padConnected = true;
+        if (!gp) {
+            padL = padR = padU = padD = padA = padX = padY = padB = padStart = false;
+            prevA = prevX = prevB = prevY = prevStart = false;
+            padConnected = false;
+            return;
+        }
+        const b = gp.buttons;
+        const on = (i) => !!(b[i] && (b[i].pressed || b[i].value > 0.5));
+        // 十字键：12 上 / 13 下 / 14 左 / 15 右
+        padU = on(12); padD = on(13); padL = on(14); padR = on(15);
+        if (gp.axes && gp.axes.length > 0) {
+            if (gp.axes[0] < -0.5) padL = true;
+            if (gp.axes[0] > 0.5) padR = true;
+            if (gp.axes[1] < -0.5) padU = true;
+            if (gp.axes[1] > 0.5) padD = true;
+        }
+        const a = on(0), x = on(2), y = on(3), bk = on(1), st = on(9);
+        padA = a; padX = x; padB = bk; padY = y; padStart = st;
+        if (a && !prevA) tryJump(player);
+        if (x && !prevX) startAttack(player, 'punch');
+        if (bk && !prevB) startAttack(player, 'kick');
+        if (y && !prevY) startAttack(player, 'rise');
+        if (st && !prevStart) { if (gameOver) resetGame(); }
+        prevA = a; prevX = x; prevB = bk; prevY = y; prevStart = st;
+    }
+
+    window.addEventListener('blur', () => {
+        for (const k in keys) keys[k] = false;
+        keyPressed.KeyJ = keyPressed.KeyL = keyPressed.KeyI = false;
+        touchStates.clear();
+        refreshTouchFlags();
+    });
+
+    // ==================== 更新 ====================
+    function updatePlayer(dt) {
+        const p = player;
+        if (p.dead) {
+            keyPressed.KeyJ = keyPressed.KeyL = keyPressed.KeyI = false;
+            return;
+        }
+
+        const kx = (kRight() || padR || touchRight ? 1 : 0) - (kLeft() || padL || touchLeft ? 1 : 0);
+        // 纵深：depth 越大画面越靠上，因此“上”为正
+        const ky = (kUp() || padU || touchUp ? 1 : 0) - (kDown() || padD || touchDown ? 1 : 0);
+
+        p.jumpHeld = kJump() || padA || touchJump;
+
+        const canAct = p.hurtT <= 0 && !p.atk;
+        if (canAct) {
+            p.vx += kx * PLAYER_SPEED * dt * 14;
+            const mx = PLAYER_SPEED;
+            if (p.vx > mx) p.vx = mx;
+            if (p.vx < -mx) p.vx = -mx;
+            if (kx === 0) p.vx *= Math.pow(0.0009, dt);
+            p.vDepth += ky * MOVE_DEPTH * dt * 14;
+            if (p.vDepth > MOVE_DEPTH) p.vDepth = MOVE_DEPTH;
+            if (p.vDepth < -MOVE_DEPTH) p.vDepth = -MOVE_DEPTH;
+            if (ky === 0) p.vDepth *= Math.pow(0.0009, dt);
+            if (kx !== 0) p.facing = kx > 0 ? 1 : -1;
+            if (Math.abs(p.vx) > 20) p.walkPhase += dt * walkRate(p);
+            else if (Math.abs(p.vDepth) > 0.05) p.walkPhase += dt * 9;
+            if (Math.abs(p.vDepth) > 0.05) p.depthPhase += dt * 8;
+        } else {
+            p.vx *= Math.pow(0.02, dt);
+            p.vDepth *= Math.pow(0.02, dt);
+        }
+
+        // 攻击：键盘用按下沿触发（按住不连发），手柄/触屏本身已是沿触发
+        if (keyPressed['KeyJ'] || padX || touchPunch) startAttack(p, 'punch');
+        if (keyPressed['KeyL'] || padB || touchKick) startAttack(p, 'kick');
+        if (keyPressed['KeyI'] || padY || touchRise) startAttack(p, 'rise');
+        keyPressed.KeyJ = keyPressed.KeyL = keyPressed.KeyI = false;
+
+        for (const key in p.cooldowns) {
+            if (p.cooldowns[key] > 0) p.cooldowns[key] -= dt;
+        }
+
+        updateMotion(p, dt);
+        updateAttack(p, dt);
+    }
+
+    function updateDeadBody(f, dt) {
+        if (f.landed) return;
+        f.vx = 0;
+        f.vDepth = 0;
+        updateMotion(f, dt);
+        if (!f.airborne && f.alt <= 0) { f.alt = 0; f.vy = 0; f.landed = true; }
+    }
+
+    function updateFoe(f, dt) {
+        if (f.dead) {
+            // 倒地后彻底静止：只在尚未落地时走完空中抛物线，尸体不消失也不再刷新新敌人
+            f.koT += dt;
+            updateDeadBody(f, dt);
+            return;
+        }
+
+        // 入场：从画面外走向指定位置，入场期间不参与战斗
+        if (f.entering) {
+            const dx = f.enterX - f.x;
+            const dir = dx > 0 ? 1 : -1;
+            f.facing = dir;
+            const cap = MOVE_X * 0.62;
+            f.vx += dir * MOVE_X * 9 * dt;
+            if (f.vx > cap) f.vx = cap;
+            if (f.vx < -cap) f.vx = -cap;
+            f.vDepth *= Math.pow(0.02, dt);
+            f.walkPhase += dt * 10;
+            updateMotion(f, dt);
+            if (Math.abs(f.enterX - f.x) < 8) {
+                f.entering = false;
+                f.vx = 0;
+                f.facing = (player && !player.dead) ? (player.x >= f.x ? 1 : -1) : 1;
+                f.aiTimer = rand(AI.reactMin, AI.reactMax);
+            }
+            return;
+        }
+
+        const p = player;
+        f.jumpHeld = false;
+        for (const key in f.cooldowns) if (f.cooldowns[key] > 0) f.cooldowns[key] -= dt;
+
+        if (p.dead) {
+            f.vx *= Math.pow(0.05, dt);
+            f.vDepth *= Math.pow(0.05, dt);
+            updateMotion(f, dt);
+            return;
+        }
+
+        const dx = p.x - f.x;
+        const dd = p.depth - f.depth;
+        const adx = Math.abs(dx);
+        const add = Math.abs(dd);
+        const reach = MOVES.punch.range;
+
+        f.aiTimer -= dt;
+
+        if (f.hurtT <= 0 && !f.atk && f.invuln <= 0) {
+            if (f.aiMode === 'approach') {
+                // 先对齐水平线，再靠近
+                if (add > 0.06) {
+                    const dir = dd > 0 ? 1 : -1;
+                    f.vDepth += dir * MOVE_DEPTH * 9 * AI.speedMul * dt;
+                    if (Math.abs(f.vDepth) > MOVE_DEPTH * AI.speedMul) f.vDepth = MOVE_DEPTH * AI.speedMul * dir;
+                    // 纵向移动同样要迈步，否则腿会僵在某个中间姿势上跟着身体上下滑
+                    f.vx *= Math.pow(0.02, dt);
+                    if (Math.abs(f.vx) > 20) f.walkPhase += dt * walkRate(f);
+                    else if (Math.abs(f.vDepth) > 0.05) f.walkPhase += dt * 9;
+                } else if (adx > reach * 0.72) {
+                    const dir = dx > 0 ? 1 : -1;
+                    const cap = MOVE_X * 0.72 * AI.speedMul;
+                    f.vx += dir * MOVE_X * 9 * AI.speedMul * dt;
+                    if (f.vx > cap) f.vx = cap;
+                    if (f.vx < -cap) f.vx = -cap;
+                    if (Math.abs(f.vDepth) > 0.05) f.vDepth *= Math.pow(0.02, dt);
+                    f.walkPhase += dt * walkRate(f);
+                } else {
+                    f.vx *= Math.pow(0.02, dt);
+                    f.vDepth *= Math.pow(0.02, dt);
+                    if (f.aiTimer <= 0) {
+                        // 同一水平线且够得着 -> 有概率出招
+                        if (add <= MOVES.punch.dtol && Math.random() < AI.attackChance) {
+                            const roll = Math.random();
+                            if (roll < AI.punchRatio) startAttack(f, 'punch');
+                            else if (roll < AI.kickRatio) startAttack(f, 'kick');
+                            else startAttack(f, 'rise');
+                            f.facing = dx >= 0 ? 1 : -1;
+                        }
+                        f.aiMode = Math.random() < AI.strafeChance ? 'strafe' : 'approach';
+                        f.aiTimer = f.aiMode === 'strafe' ? rand(AI.strafeMin, AI.strafeMax) : rand(AI.reactMin, AI.reactMax);
+                        f.aiStrafeDir = Math.random() < 0.5 ? -1 : 1;
+                    }
+                }
+            } else if (f.aiMode === 'strafe') {
+                const cap = MOVE_X * 0.72 * AI.speedMul;
+                f.vx += f.aiStrafeDir * MOVE_X * 5 * AI.speedMul * dt;
+                // 不封顶会一路加速成滑步，封顶后速度可控
+                if (f.vx > cap) f.vx = cap;
+                if (f.vx < -cap) f.vx = -cap;
+                f.vDepth += (Math.random() - 0.5) * MOVE_DEPTH * 3 * AI.speedMul * dt;
+                f.vDepth = clamp(f.vDepth, -MOVE_DEPTH * 0.7, MOVE_DEPTH * 0.7);
+                // 步频跟随速度，避免身子在滑、腿在原地倒腾
+                if (Math.abs(f.vx) > 20) f.walkPhase += dt * walkRate(f) * clamp(Math.abs(f.vx) / cap, 0.40, 1);
+                else if (Math.abs(f.vDepth) > 0.05) f.walkPhase += dt * 6;
+                f.depthPhase += dt * 6;
+                if (f.aiTimer <= 0) {
+                    f.aiMode = 'approach';
+                    f.aiTimer = rand(AI.reactMin, AI.reactMax);
+                }
+            }
+            if (Math.abs(f.vx) > 20) f.facing = f.vx > 0 ? 1 : -1;
+        } else {
+            f.vx *= Math.pow(0.05, dt);
+            f.vDepth *= Math.pow(0.05, dt);
+        }
+
+        // 待机时偶尔跳一下
+        if (!f.atk && f.hurtT <= 0 && f.invuln <= 0 && !f.airborne && Math.random() < dt * AI.jumpChance) tryJump(f);
+
+        updateMotion(f, dt);
+        updateAttack(f, dt);
+    }
+
+    function updateParticles(dt) {
+        updateImpacts(dt);
+        for (let i = particles.length - 1; i >= 0; i--) {
+            const q = particles[i];
+            q.life -= dt;
+            if (q.life <= 0) { particles.splice(i, 1); continue; }
+            q.x += q.vx * dt;
+            q.y += q.vy * dt;
+            q.vy += q.grav * dt;
+            q.vx *= Math.pow(0.12, dt);
+        }
+        for (let i = floaters.length - 1; i >= 0; i--) {
+            const f = floaters[i];
+            f.life -= dt;
+            if (f.life <= 0) { floaters.splice(i, 1); continue; }
+            f.alt += f.vy * dt;
+            f.vy += 120 * dt;
+        }
+        if (shake > 0) shake = Math.max(0, shake - dt * 42);
+        if (comboTimer > 0) {
+            comboTimer -= dt;
+            if (comboTimer <= 0) combo = 0;
+        }
+        if (hintTimer > 0) hintTimer -= dt;
+        if (gameOver) overTimer += dt;
+    }
+
+    function update(dt) {
+        clock += dt;
+        pollGamepad();
+        if (gameOver) {
+            // 结算时仍让空中倒地的角色落回地面，落定后彻底静止
+            if (player && player.dead) updateDeadBody(player, dt);
+            updateParticles(dt);
+            return;
+        }
+
+        let step = dt;
+        if (hitStop > 0) {
+            const used = Math.min(hitStop, dt);
+            hitStop -= used;
+            step = Math.max(0, dt - used);
+        }
+
+        if (step > 0) {
+            updatePlayer(step);
+            for (let i = 0; i < foes.length; i++) updateFoe(foes[i], step);
+        }
+        updateParticles(dt);
+    }
+
+    // ==================== 绘制：背景 ====================
+    let skyGrad = null, roadGrad = null, hudBgGrad = null;
+    function rebuildGradients() {
+        skyGrad = ctx.createLinearGradient(0, 0, 0, BELT_BACK + 30);
+        skyGrad.addColorStop(0, '#141a3a');
+        skyGrad.addColorStop(0.45, '#3a2a55');
+        skyGrad.addColorStop(0.8, '#7b3f63');
+        skyGrad.addColorStop(1, '#c96a52');
+        roadGrad = ctx.createLinearGradient(0, BELT_BACK, 0, H);
+        roadGrad.addColorStop(0, '#2a2c40');
+        roadGrad.addColorStop(0.5, '#34374f');
+        roadGrad.addColorStop(1, '#1d1f2e');
+        hudBgGrad = ctx.createLinearGradient(0, 0, 0, HUD_H);
+        hudBgGrad.addColorStop(0, 'rgba(10, 12, 24, 0.95)');
+        hudBgGrad.addColorStop(1, 'rgba(6, 8, 16, 0.92)');
+    }
+
+    function drawBackdrop() {
+        ctx.fillStyle = skyGrad;
+        ctx.fillRect(0, 0, W, BELT_BACK + 30);
+
+        // 月亮
+        const mx = 1010, my = 96, mr = 34;
+        const glow = ctx.createRadialGradient(mx, my, mr * 0.4, mx, my, mr * 2.6);
+        glow.addColorStop(0, 'rgba(255, 244, 210, 0.30)');
+        glow.addColorStop(1, 'rgba(255, 244, 210, 0)');
+        ctx.fillStyle = glow;
+        ctx.beginPath();
+        ctx.arc(mx, my, mr * 2.6, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = '#f6efd6';
+        ctx.beginPath();
+        ctx.arc(mx, my, mr, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = 'rgba(200, 188, 158, 0.55)';
+        ctx.beginPath();
+        ctx.arc(mx - 10, my - 7, 6, 0, Math.PI * 2);
+        ctx.arc(mx + 9, my + 10, 4.5, 0, Math.PI * 2);
+        ctx.fill();
+
+        drawSkyline();
+        drawBelt();
+    }
+
+    function drawSkyline() {
+        const baseY = BELT_BACK + 30;
+        for (let layer = 0; layer < 2; layer++) {
+            const seed = layer * 37 + bgSeed;
+            const shade = layer === 0 ? 'rgba(30, 26, 52, 0.95)' : 'rgba(20, 17, 38, 0.98)';
+            const hMin = layer === 0 ? 90 : 130;
+            const hMax = layer === 0 ? 190 : 250;
+            let x = -60;
+            let i = 0;
+            while (x < W + 60) {
+                const bw = 46 + hash(i * 3 + 1 + seed) * 74;
+                const bh = hMin + hash(i * 3 + 2 + seed) * (hMax - hMin);
+                const top = baseY - bh - layer * 26;
+                ctx.fillStyle = shade;
+                ctx.fillRect(x, top, bw, bh + 60);
+                if (layer === 1) {
+                    ctx.fillStyle = 'rgba(255, 214, 140, 0.55)';
+                    for (let wy = 0; wy < Math.floor(bh / 26) - 1; wy++) {
+                        for (let wx = 0; wx < Math.floor(bw / 22) - 1; wx++) {
+                            if (hash(i * 31 + wy * 7 + wx * 3 + seed) > 0.62) {
+                                ctx.fillRect(x + 8 + wx * 22, top + 12 + wy * 26, 9, 12);
+                            }
+                        }
+                    }
+                }
+                x += bw + 5 + hash(i * 5 + 4 + seed) * 16;
+                i++;
+            }
+        }
+    }
+
+    function drawBelt() {
+        ctx.fillStyle = roadGrad;
+        ctx.fillRect(0, BELT_BACK, W, H - BELT_BACK);
+
+        // 远处的护栏/路缘
+        ctx.fillStyle = '#3d4160';
+        ctx.fillRect(0, BELT_BACK - 10, W, 12);
+        ctx.fillStyle = '#4a4f74';
+        ctx.fillRect(0, BELT_BACK - 10, W, 4);
+        ctx.fillStyle = 'rgba(255,255,255,0.10)';
+        for (let x = 20; x < W; x += 74) ctx.fillRect(x, BELT_BACK - 8, 4, 8);
+
+        // 纵深参考线：帮助判断是否同一水平线
+        for (let d = 0; d <= 1.0001; d += 0.125) {
+            const y = depthY(d);
+            const major = Math.abs(d * 8 - Math.round(d * 8)) < 0.01 && Math.round(d * 8) % 2 === 0;
+            ctx.strokeStyle = major ? 'rgba(150, 180, 230, 0.20)' : 'rgba(150, 180, 230, 0.09)';
+            ctx.lineWidth = major ? 2 : 1;
+            ctx.beginPath();
+            ctx.moveTo(0, y);
+            ctx.lineTo(W, y);
+            ctx.stroke();
+        }
+
+        // 中线
+        ctx.strokeStyle = 'rgba(255, 230, 150, 0.16)';
+        ctx.lineWidth = 3;
+        ctx.setLineDash([26, 22]);
+        ctx.beginPath();
+        ctx.moveTo(0, depthY(0.5));
+        ctx.lineTo(W, depthY(0.5));
+        ctx.stroke();
+        ctx.setLineDash([]);
+
+        // 地面纹理
+        ctx.strokeStyle = 'rgba(255,255,255,0.035)';
+        ctx.lineWidth = 1;
+        for (let i = 0; i < 16; i++) {
+            const t = i / 16;
+            const y0 = depthY(t);
+            ctx.beginPath();
+            ctx.moveTo(0, y0);
+            ctx.lineTo(W, y0 + 8);
+            ctx.stroke();
+        }
+    }
+
+    function drawShadow(f) {
+        const y = depthY(f.depth);
+        const s = depthScale(f.depth);
+        const k = clamp(1 - f.alt / (JUMP_MAX * 2.4), 0.32, 1);
+        ctx.save();
+        ctx.globalAlpha = 0.34 * k;
+        ctx.fillStyle = '#000000';
+        ctx.beginPath();
+        // 倒地后身体摊平，投影随之变宽变扁
+        if (f.dead) {
+            ctx.ellipse(f.x, y + 3 * FIG_K, 58 * FIG_K * s, 8 * FIG_K * s, 0, 0, Math.PI * 2);
+        } else {
+            ctx.ellipse(f.x, y + 4 * FIG_K, 34 * FIG_K * s * k, 10 * FIG_K * s * k, 0, 0, Math.PI * 2);
+        }
+        ctx.fill();
+        ctx.restore();
+    }
+
+    // ==================== 绘制：人物 ====================
+    const OUTLINE = 'rgba(12, 16, 30, 0.55)';
+
+    function drawTube(x1, y1, x2, y2, w, color) {
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        ctx.strokeStyle = OUTLINE;
+        ctx.lineWidth = w + 2.2;
+        ctx.beginPath();
+        ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+        ctx.strokeStyle = color;
+        ctx.lineWidth = w;
+        ctx.beginPath();
+        ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+    }
+
+    // 整条腿一次成形：髋→膝→踝是一条连续曲线，沿线做变宽偏移后整体填充+描边。
+    // 大腿与小腿不再是两个独立图层，膝关节处自然没有硬边接缝。
+    function drawLeg(hx, hy, kx, ky, ax, ay, wThigh, wShin, cUp, cDown, S) {
+        const N = 20;
+        const m0x = (hx + kx) * 0.5, m0y = (hy + ky) * 0.5;
+        const m1x = (kx + ax) * 0.5, m1y = (ky + ay) * 0.5;
+        const sxp = hx + (ax - hx) * 0.5, syp = hy + (ay - hy) * 0.5;
+        // 两段二次贝塞尔的控制点向髋-踝连线靠拢，把膝部的折角抹圆
+        const c1x = m0x + (sxp - m0x) * 0.34, c1y = m0y + (syp - m0y) * 0.34;
+        const c2x = m1x + (sxp - m1x) * 0.34, c2y = m1y + (syp - m1y) * 0.34;
+
+        const pts = [];
+        for (let i = 0; i <= N; i++) {
+            const t = i / N;
+            const u = t <= 0.5 ? t * 2 : (t - 0.5) * 2;
+            const iu = 1 - u;
+            let px, py;
+            if (t <= 0.5) {
+                px = iu * iu * hx + 2 * iu * u * c1x + u * u * kx;
+                py = iu * iu * hy + 2 * iu * u * c1y + u * u * ky;
+            } else {
+                px = iu * iu * kx + 2 * iu * u * c2x + u * u * ax;
+                py = iu * iu * ky + 2 * iu * u * c2y + u * u * ay;
+            }
+            pts.push({ x: px, y: py });
+        }
+
+        // 膝在中心线上的参数位置（限制在合理区间，保证半宽锚点单调递增）
+        let tkRaw = 0.5, best = Infinity;
+        for (let i = 0; i <= N; i++) {
+            const ddx = pts[i].x - kx, ddy = pts[i].y - ky;
+            const d = ddx * ddx + ddy * ddy;
+            if (d < best) { best = d; tkRaw = i / N; }
+        }
+        const tk = clamp(tkRaw, 0.20, 0.80);
+
+        // 半宽锚点：髋最粗 → 股四头肌 → 膝部收细 → 小腿肚 → 脚踝
+        const anchors = [
+            [0.00, wThigh * 1.06],
+            [Math.max(0.05, tk - 0.36), wThigh * 1.02],
+            [Math.max(0.09, tk - 0.12), wThigh * 0.92],
+            [tk, wThigh * 0.82],
+            [Math.min(0.93, tk + 0.17), wShin * 1.26],
+            [Math.min(0.99, tk + 0.36), wShin * 1.00],
+            [1.00, wShin * 0.78]
+        ];
+        const halfAt = (t) => {
+            let i = 0;
+            while (i < anchors.length - 2 && anchors[i + 1][0] < t) i++;
+            const a = anchors[i], b = anchors[i + 1];
+            const span = b[0] - a[0] || 1;
+            let u = clamp((t - a[0]) / span, 0, 1);
+            u = u * u * (3 - 2 * u);
+            return (a[1] + (b[1] - a[1]) * u) * 0.5;
+        };
+
+        // 法线（局部 +n 指向后侧）与正反两侧的轮廓点
+        const nrm = [], fr = [], bk = [];
+        for (let i = 0; i <= N; i++) {
+            const a = pts[Math.max(0, i - 1)], b = pts[Math.min(N, i + 1)];
+            let dx = b.x - a.x, dy = b.y - a.y;
+            const L = Math.hypot(dx, dy) || 1;
+            const nx = -dy / L, ny = dx / L;
+            const w = halfAt(i / N);
+            nrm.push({ x: nx, y: ny });
+            fr.push({ x: pts[i].x - nx * w, y: pts[i].y - ny * w });
+            bk.push({ x: pts[i].x + nx * w, y: pts[i].y + ny * w });
+        }
+        const ang0 = Math.atan2(nrm[0].y, nrm[0].x);
+        const angN = Math.atan2(nrm[N].y, nrm[N].x);
+        const wHip = halfAt(0), wAnk = halfAt(1);
+
+        const trace = () => {
+            ctx.beginPath();
+            ctx.moveTo(fr[0].x, fr[0].y);
+            for (let i = 1; i <= N; i++) ctx.lineTo(fr[i].x, fr[i].y);
+            ctx.arc(ax, ay, wAnk, angN, angN - Math.PI, true);        // 脚踝端圆头
+            for (let i = N - 1; i >= 0; i--) ctx.lineTo(bk[i].x, bk[i].y);
+            ctx.arc(hx, hy, wHip, ang0 + Math.PI, ang0, true);        // 髋端圆头
+            ctx.closePath();
+        };
+
+        ctx.save();
+        ctx.lineJoin = 'round';
+        ctx.lineCap = 'round';
+        ctx.strokeStyle = OUTLINE;
+        ctx.lineWidth = Math.max(1.8, 1.6 * S);
+        trace(); ctx.stroke();
+        ctx.fillStyle = cUp;
+        trace(); ctx.fill();
+
+        ctx.save();
+        trace(); ctx.clip();
+
+        // 小腿换成深一号的裤色，过渡带柔和渐入，膝下不再出现生硬换色
+        const ik = Math.round(tk * N);
+        ctx.fillStyle = cDown;
+        const j0 = Math.max(0, ik - 5);
+        for (let j = j0; j < N; j++) {
+            ctx.globalAlpha = 0.34 * clamp((j - j0) / 5, 0, 1);
+            ctx.beginPath();
+            ctx.moveTo(fr[j].x, fr[j].y);
+            ctx.lineTo(fr[j + 1].x, fr[j + 1].y);
+            ctx.lineTo(bk[j + 1].x, bk[j + 1].y);
+            ctx.lineTo(bk[j].x, bk[j].y);
+            ctx.closePath();
+            ctx.fill();
+        }
+        ctx.globalAlpha = 1;
+
+        // 后侧压暗 / 前侧受光，做出圆柱体积
+        const strip = (innerK, outerK, style) => {
+            ctx.fillStyle = style;
+            ctx.beginPath();
+            for (let i = 0; i <= N; i++) {
+                const w = halfAt(i / N), n = nrm[i], p = pts[i];
+                const x = p.x + n.x * w * innerK, y = p.y + n.y * w * innerK;
+                if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+            }
+            for (let i = N; i >= 0; i--) {
+                const w = halfAt(i / N), n = nrm[i], p = pts[i];
+                ctx.lineTo(p.x + n.x * w * outerK, p.y + n.y * w * outerK);
+            }
+            ctx.closePath();
+            ctx.fill();
+        };
+        strip(0.30, 1.06, 'rgba(8, 12, 26, 0.17)');
+        strip(-0.98, -0.46, 'rgba(255, 255, 255, 0.12)');
+
+        // 膝关节细节：上方一道柔和压痕
+        const kp = pts[ik], kn = nrm[ik];
+        const kw = halfAt(tk);
+        const angK = Math.atan2(kn.y, kn.x);
+        ctx.lineCap = 'round';
+        ctx.strokeStyle = 'rgba(8, 12, 26, 0.20)';
+        ctx.lineWidth = Math.max(1, 1.9 * S);
+        ctx.beginPath();
+        ctx.arc(kp.x, kp.y, kw * 0.86, angK, angK + Math.PI);
+        ctx.stroke();
+
+        // 裤脚
+        const ic = Math.min(N, Math.round(0.86 * N));
+        const cw = halfAt(0.86);
+        ctx.strokeStyle = 'rgba(0, 0, 0, 0.26)';
+        ctx.lineWidth = Math.max(1.5, 2.6 * S);
+        ctx.lineCap = 'butt';
+        ctx.beginPath();
+        ctx.moveTo(pts[ic].x + nrm[ic].x * cw, pts[ic].y + nrm[ic].y * cw);
+        ctx.lineTo(pts[ic].x - nrm[ic].x * cw, pts[ic].y - nrm[ic].y * cw);
+        ctx.stroke();
+        ctx.restore();
+        ctx.restore();
+    }
+
+    // 躯干轮廓：绘制空间统一朝右，前（胸）侧外挺、后（背）侧平直，带侧向偏身感
+    // nx = 颈轴位置（侧身像下前移到领口开口中心）；颈根那条凹线跟着 nx 走，并做成后窄前宽
+    // bx = 背侧最左边界：侧身像里躯干不能比近侧手臂（肩膀）画得更靠左，否则轮廓会多出一块
+    function traceTorsoPath(cx, nx, bx, shY, hipY, shHalf, waHalf, hpHalf) {
+        const th = hipY - shY;
+        const nk = shHalf * 0.34;
+        const nkB = nk * 0.82;          // 颈孔后侧（靠后颈）收紧
+        const nkF = nk * 1.43;          // 颈孔前侧（靠胸口）放宽，右端正好落在白色 V 领的前端点上
+        const backSh = { x: bx, y: shY + th * 0.14 };
+        const frontSh = cx + shHalf * 1.04;
+        ctx.beginPath();
+        // 背侧：较直，整体不越过 bx
+        ctx.moveTo(backSh.x, backSh.y);
+        ctx.bezierCurveTo(Math.max(cx - shHalf * 1.01, bx), shY + th * 0.44, Math.max(cx - waHalf * 1.06, bx), shY + th * 0.68, Math.max(cx - hpHalf * 0.99, bx), hipY + th * 0.05);
+        // 髋底：略向前偏
+        ctx.quadraticCurveTo(cx + hpHalf * 0.14, hipY + th * 0.20, cx + hpHalf * 1.03, hipY + th * 0.05);
+        // 胸侧：外挺
+        ctx.bezierCurveTo(cx + waHalf * 1.30, shY + th * 0.68, cx + shHalf * 1.14, shY + th * 0.44, frontSh, shY + th * 0.14);
+        // 斜方肌 + 颈根：衣领与脖子上缘交界的这条凹线，中心与领口开口、脖子对齐
+        ctx.quadraticCurveTo(nx + shHalf * 0.62, shY - th * 0.07, nx + nkF, shY - th * 0.038);
+        ctx.quadraticCurveTo(nx + nkB * 0.22, shY + th * 0.125, nx - nkB, shY - th * 0.03);
+        ctx.quadraticCurveTo(nx - shHalf * 0.60, shY - th * 0.07, backSh.x, backSh.y);
+        ctx.closePath();
+    }
+
+    // 骨盆/短裤：把两条大腿和躯干衔接起来
+    function tracePelvisPath(cx, topY, halfW, drop) {
+        ctx.beginPath();
+        ctx.moveTo(cx - halfW, topY - drop * 0.55);
+        ctx.quadraticCurveTo(cx, topY - drop * 0.90, cx + halfW, topY - drop * 0.55);
+        ctx.lineTo(cx + halfW * 0.86, topY + drop * 0.72);
+        ctx.quadraticCurveTo(cx, topY + drop, cx - halfW * 0.86, topY + drop * 0.72);
+        ctx.closePath();
+    }
+
+    // 在肢体上画一圈横向束带（纹身/护腕）
+    function drawBand(x0, y0, x1, y1, t, width, thick, color) {
+        let dx = x1 - x0, dy = y1 - y0;
+        const L = Math.hypot(dx, dy) || 1;
+        dx /= L; dy /= L;
+        const bx = x0 + dx * L * t, by = y0 + dy * L * t;
+        ctx.strokeStyle = color;
+        ctx.lineWidth = thick;
+        ctx.lineCap = 'butt';
+        ctx.beginPath();
+        ctx.moveTo(bx + dy * width * 0.5, by - dx * width * 0.5);
+        ctx.lineTo(bx - dy * width * 0.5, by + dx * width * 0.5);
+        ctx.stroke();
+    }
+
+    function drawShoe(x, y, angle, scale, col, accent) {
+        ctx.save();
+        ctx.translate(x, y);
+        ctx.scale(scale, scale);
+        ctx.rotate(angle);
+        ctx.lineJoin = 'round';
+        ctx.lineCap = 'round';
+
+// 鞋帮：后帮 → 鞋口 → 鞋面 → 鞋头（前掌略长、后跟略收）
+        const upper = () => {
+            ctx.beginPath();
+            ctx.moveTo(-7.0, -2.3);
+            ctx.quadraticCurveTo(-6.7, -4.6, -4.0, -5.0);
+            ctx.quadraticCurveTo(0.2, -2.6, 4.2, -2.6);
+            ctx.quadraticCurveTo(8.0, -2.0, 11.2, -1.2);
+            ctx.quadraticCurveTo(14.9, -0.1, 16.4, 1.4);
+            ctx.quadraticCurveTo(17.5, 3.0, 15.5, 3.8);
+            ctx.lineTo(-7.0, 3.8);
+            ctx.closePath();
+        };
+        upper();
+        ctx.strokeStyle = OUTLINE;
+        ctx.lineWidth = 2.6;
+        ctx.stroke();
+        ctx.fillStyle = col.shoe;
+        ctx.fill();
+
+        // 包头 + 鞋面高光 + 后跟暗部
+        ctx.save();
+        upper();
+        ctx.clip();
+        ctx.fillStyle = col.shoeDark;
+        ctx.beginPath();
+        ctx.moveTo(10.4, -1.9);
+        ctx.quadraticCurveTo(15.0, -0.9, 16.7, 1.6);
+        ctx.quadraticCurveTo(17.8, 3.0, 15.4, 3.9);
+        ctx.lineTo(10.4, 3.9);
+        ctx.closePath();
+        ctx.fill();
+        ctx.fillStyle = 'rgba(255,255,255,0.16)';
+        ctx.beginPath();
+        ctx.ellipse(4.2, -1.7, 6.2, 1.1, -0.14, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = 'rgba(0,0,0,0.16)';
+        ctx.beginPath();
+        ctx.ellipse(-6.2, 0.4, 1.8, 3.4, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+
+        // 侧边特征条
+        if (accent) {
+            ctx.fillStyle = accent;
+            ctx.beginPath();
+            ctx.moveTo(-3.4, 0.6);
+            ctx.quadraticCurveTo(3.0, 0.0, 8.4, 1.5);
+            ctx.lineTo(7.3, 2.6);
+            ctx.quadraticCurveTo(2.4, 1.1, -3.6, 1.9);
+            ctx.closePath();
+            ctx.fill();
+        }
+
+        // 鞋带
+        ctx.strokeStyle = 'rgba(255,255,255,0.55)';
+        ctx.lineWidth = 1.1;
+        for (let i = 0; i < 3; i++) {
+            const bx = 1.4 + i * 2.3, by = -2.3 + i * 0.45;
+            ctx.beginPath();
+            ctx.moveTo(bx, by);
+            ctx.lineTo(bx + 2.2, by + 0.9);
+            ctx.stroke();
+        }
+        // 鞋口压边：跟着鞋口那段向下的弧
+        ctx.strokeStyle = 'rgba(0,0,0,0.26)';
+        ctx.lineWidth = 1.2;
+        ctx.beginPath();
+        ctx.moveTo(-5.6, -3.5);
+        ctx.quadraticCurveTo(0.2, -1.9, 4.8, -1.9);
+        ctx.stroke();
+
+        // 中底 + 大底：后跟略厚、前掌翘起，鞋底不再是直板
+        const sole = () => {
+            ctx.beginPath();
+            ctx.moveTo(-7.1, 3.3);
+            ctx.quadraticCurveTo(-8.0, 5.4, -5.4, 5.8);
+            ctx.lineTo(10.6, 5.8);
+            ctx.quadraticCurveTo(14.8, 5.6, 16.7, 2.7);
+            ctx.lineTo(15.1, 3.6);
+            ctx.closePath();
+        };
+        sole();
+        ctx.strokeStyle = OUTLINE;
+        ctx.lineWidth = 1.2;
+        ctx.stroke();
+        ctx.fillStyle = '#f2f4f8';
+        ctx.fill();
+        // 橡胶大底：厚度均匀，跟着前掌一起翘起
+        ctx.save();
+        sole();
+        ctx.clip();
+        ctx.fillStyle = '#2b2f38';
+        ctx.beginPath();
+        ctx.moveTo(-8.4, 4.8);
+        ctx.lineTo(10.6, 4.8);
+        ctx.lineTo(16.9, 1.3);
+        ctx.lineTo(18.4, 7.4);
+        ctx.lineTo(-8.4, 7.4);
+        ctx.closePath();
+        ctx.fill();
+        ctx.restore();
+        ctx.restore();
+    }
+
+    // 小臂照常绘制，再在小臂末端接上拳头（拳面是指关节轮廓，整体沿小臂方向）
+    function drawForearmFist(ex, ey, hx, hy, wF, rF, foreCol, side, col, S) {
+        // 小臂
+        drawTube(ex, ey, hx, hy, wF, foreCol);
+
+        let dx = hx - ex, dy = hy - ey;
+        const L = Math.hypot(dx, dy) || 1;
+        dx /= L; dy /= L;
+        const px = -dy, py = dx;                            // 局部 +y（手臂方向的左侧）
+        const a = Math.min(wF * 0.5, rF * 0.74);            // 腕部半宽
+        const bw = Math.min(rF * 0.60, L * 0.42);           // 腕点压在小臂上
+        // 拳面轮廓（局部坐标：原点=拳心，+x=出拳方向）；三段指关节凸起 + 两道指间凹口
+        const c = [
+            [-bw, -a],
+            [rF * 0.16, -rF * 0.96], [rF * 0.70, -rF * 0.74], [rF * 0.80, -rF * 0.40],
+            [rF * 0.98, -rF * 0.06], [rF * 1.00, rF * 0.16], [rF * 0.80, rF * 0.42],
+            [rF * 0.70, rF * 0.76], [rF * 0.16, rF * 0.98],
+            [-bw, a]
+        ];
+        const W = c.map(p => ({ x: hx + dx * p[0] + px * p[1], y: hy + dy * p[0] + py * p[1] }));
+
+        ctx.save();
+        ctx.lineJoin = 'round';
+        ctx.lineCap = 'round';
+        ctx.beginPath();
+        ctx.moveTo(W[0].x, W[0].y);
+        // 中点法平滑折线，得到圆润的指关节轮廓
+        for (let i = 1; i < W.length - 2; i++) {
+            ctx.quadraticCurveTo(W[i].x, W[i].y, (W[i].x + W[i + 1].x) * 0.5, (W[i].y + W[i + 1].y) * 0.5);
+        }
+        ctx.lineTo(W[W.length - 1].x, W[W.length - 1].y);
+        ctx.strokeStyle = OUTLINE;                          // 只描拳面，腕部不画线
+        ctx.lineWidth = 2.2;
+        ctx.stroke();
+        ctx.closePath();
+        ctx.fillStyle = col.skin;                           // 填色盖住小臂末端的圆头
+        ctx.fill();
+
+        // 拳内部（局部坐标，+x 沿手臂方向）
+        ctx.save();
+        ctx.translate(hx, hy);
+        ctx.rotate(Math.atan2(dy, dx));
+        drawFistDetail(rF, side, col);
+        ctx.restore();
+        ctx.restore();
+    }
+
+    // side=-1 远侧手（朝右时=右手）：只有指关节轮廓的体积，不画指缝与拇指
+    // side= 1 近侧手（朝右时=左手）：拳心，带指缝；拇指在手臂方向的右侧（局部 -y）
+    function drawFistDetail(r, side, col) {
+        const dark = col.skinDark;
+        const light = 'rgba(255,255,255,0.24)';
+
+        if (side < 0) {
+            ctx.save();
+            ctx.beginPath();
+            ctx.moveTo(-r * 0.95, -r * 0.70);
+            ctx.quadraticCurveTo(-r * 0.30, -r * 0.98, r * 0.30, -r * 0.92);
+            ctx.quadraticCurveTo(r * 0.78, -r * 0.76, r * 0.90, -r * 0.20);
+            ctx.quadraticCurveTo(r * 0.96, 0, r * 0.90, r * 0.20);
+            ctx.quadraticCurveTo(r * 0.78, r * 0.76, r * 0.30, r * 0.92);
+            ctx.quadraticCurveTo(-r * 0.30, r * 0.98, -r * 0.95, r * 0.70);
+            ctx.closePath();
+            ctx.clip();
+            ctx.fillStyle = light;
+            ctx.beginPath();
+            ctx.ellipse(-r * 0.10, -r * 0.44, r * 0.68, r * 0.30, -0.22, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.globalAlpha = 0.42;                       // 阴影更淡
+            ctx.fillStyle = dark;
+            ctx.beginPath();
+            ctx.ellipse(r * 0.06, r * 0.66, r * 0.50, r * 0.20, -0.16, 0, Math.PI * 2);   // 更窄
+            ctx.fill();
+            ctx.globalAlpha = 1;
+            ctx.restore();
+            return;
+        }
+
+        // 拳心：三条指缝横过拳面（向 -y 反向弯曲）
+        ctx.strokeStyle = dark;
+        ctx.lineWidth = Math.max(0.8, r * 0.12);
+        ctx.lineCap = 'round';
+        const seamY = [-0.42, 0.02, 0.44];
+        for (let i = 0; i < seamY.length; i++) {
+            const y = r * seamY[i];
+            ctx.beginPath();
+            ctx.moveTo(r * 0.62, y - r * 0.04);
+            ctx.quadraticCurveTo(r * 0.16, y + r * 0.11, -r * 0.22, y - r * 0.10);
+            ctx.stroke();
+        }
+        // 拇指：压在最上层，位于手臂方向的右侧
+        ctx.save();
+        ctx.translate(r * 0.08, -r * 0.44);
+        ctx.rotate(0.54);
+        roundRectPath(-r * 0.46, -r * 0.25, r * 1.00, r * 0.50, r * 0.25);
+        ctx.fillStyle = OUTLINE;
+        ctx.lineWidth = Math.max(1.0, r * 0.20);
+        ctx.stroke();
+        ctx.fill();
+        roundRectPath(-r * 0.44, -r * 0.23, r * 0.96, r * 0.46, r * 0.23);
+        ctx.fillStyle = col.skin;
+        ctx.fill();
+        roundRectPath(-r * 0.40, -r * 0.21, r * 0.88, r * 0.15, r * 0.08);
+        ctx.fillStyle = light;
+        ctx.fill();
+        roundRectPath(-r * 0.40, r * 0.10, r * 0.88, r * 0.13, r * 0.07);
+        ctx.fillStyle = dark;
+        ctx.fill();
+        ctx.restore();
+    }
+
+    // 上臂：填充后分段描边，skipInner 表示肩部那一侧（局部 -y，屏幕右侧）不描线，与躯干自然融合
+    function drawUpperArm(x1, y1, x2, y2, w, color, skipInner, S) {
+        let dx = x2 - x1, dy = y2 - y1;
+        const L = Math.hypot(dx, dy) || 1;
+        dx /= L; dy /= L;
+        const nx = -dy, ny = dx;
+        const a = w * 0.5;
+        const angN = Math.atan2(ny, nx);
+        const l1x = x1 + nx * a, l1y = y1 + ny * a;
+        const l2x = x2 + nx * a, l2y = y2 + ny * a;
+        const r1x = x1 - nx * a, r1y = y1 - ny * a;
+        const r2x = x2 - nx * a, r2y = y2 - ny * a;
+        ctx.save();
+        ctx.lineJoin = 'round';
+        ctx.lineCap = 'round';
+        ctx.beginPath();
+        ctx.moveTo(l1x, l1y);
+        ctx.lineTo(l2x, l2y);
+        ctx.arc(x2, y2, a, angN, angN - Math.PI, true);   // 肘端圆头（向后不描线）
+        ctx.lineTo(r1x, r1y);
+        ctx.arc(x1, y1, a, angN - Math.PI, angN, true);   // 肩端圆头
+        ctx.closePath();
+        ctx.fillStyle = color;
+        ctx.fill();
+        ctx.strokeStyle = OUTLINE;
+        ctx.lineWidth = 2.2;
+        // 外侧整条描边
+        ctx.beginPath();
+        ctx.moveTo(l1x, l1y);
+        ctx.lineTo(l2x, l2y);
+        ctx.stroke();
+        // 内侧：肩部一段省略
+        const t0 = skipInner ? 0.46 : 0;
+        ctx.beginPath();
+        ctx.moveTo(r1x + dx * L * t0, r1y + dy * L * t0);
+        ctx.lineTo(r2x, r2y);
+        ctx.stroke();
+        ctx.restore();
+    }
+
+    function drawHair(kind, hairCol, cx, headY, headR, s) {
+        ctx.lineJoin = 'round';
+        ctx.strokeStyle = OUTLINE;
+        ctx.lineWidth = 1.3 * s;
+        ctx.fillStyle = hairCol;
+        if (kind === 'mohawk') {
+            // 头皮底座
+            ctx.beginPath();
+            ctx.ellipse(cx, headY - headR * 0.58, headR * 0.96, headR * 0.72, 0, Math.PI, 0);
+            ctx.closePath();
+            ctx.fill();
+            ctx.stroke();
+            // 竖起的莫西干
+            ctx.beginPath();
+            ctx.moveTo(cx - headR * 0.90, headY - headR * 0.50);
+            const n = 7;
+            for (let i = 0; i <= n; i++) {
+                const t = i / n;
+                const px = cx + (t - 0.5) * headR * 1.80;
+                const hgt = headR * (0.75 + 0.55 * Math.sin(t * Math.PI));
+                const jag = (i % 2 === 0) ? headR * 0.24 : 0;
+                ctx.lineTo(px, headY - headR * 0.50 - hgt + jag);
+            }
+            ctx.closePath();
+            ctx.fill();
+            ctx.stroke();
+        } else if (kind === 'buzz') {
+            ctx.beginPath();
+            ctx.arc(cx, headY - headR * 0.08, headR * 1.0, Math.PI * 1.03, Math.PI * 1.97);
+            ctx.closePath();
+            ctx.fill();
+            ctx.stroke();
+            // 鬓角
+            ctx.fillRect(cx - headR * 1.0, headY - headR * 0.34, headR * 0.17, headR * 0.48);
+            ctx.fillRect(cx + headR * 0.83, headY - headR * 0.34, headR * 0.17, headR * 0.48);
+        } else {
+            // 尖刺（玩家）：头皮下缘抬到眼睛之上，头带以下不遮脸
+            ctx.beginPath();
+            ctx.arc(cx, headY, headR, Math.PI * 1.138, Math.PI * 1.862, false);
+            ctx.closePath();
+            ctx.fill();
+            ctx.stroke();
+            // 尖刺
+            const n = 5;
+            ctx.beginPath();
+            ctx.moveTo(cx - headR * 0.90, headY - headR * 0.44);
+            for (let i = 0; i < n; i++) {
+                const x1 = cx + (-0.90 + ((i + 0.5) / n) * 1.80) * headR;
+                const x2 = cx + (-0.90 + ((i + 1) / n) * 1.80) * headR;
+                ctx.lineTo(x1, headY - headR * (1.18 + (i % 2) * 0.14));
+                ctx.lineTo(x2, headY - headR * 0.46);
+            }
+            ctx.closePath();
+            ctx.fill();
+            ctx.stroke();
+        }
+    }
+
+    // 脖子几何：颈底锚在颈轴 nx，颈顶随头再前移到 hx（脖子朝胸口前倾）
+    function neckGeom(nx, hx, headY, headR, shY, shHalf, h) {
+        return {
+            nTop: headY + headR * 0.52,
+            nBot: shY + h * 0.028,
+            topW: headR * 0.46,
+            botW: shHalf * 0.42,
+            tx: hx, bx: nx
+        };
+    }
+
+    // 脖子：独立图形，上窄下宽并带下颌投影
+    function drawNeck(g, h, col, S) {
+        const nTop = g.nTop, nBot = g.nBot, topW = g.topW, botW = g.botW;
+        const tx = g.tx, bx = g.bx;
+        const mx = bx + (tx - bx) * 0.62;          // 颈身中段的中心（介于颈底与颈顶之间）
+        const path = () => {
+            ctx.beginPath();
+            ctx.moveTo(tx - topW, nTop);
+            ctx.quadraticCurveTo(tx, nTop - h * 0.008, tx + topW, nTop);
+            ctx.quadraticCurveTo(mx + botW * 0.92, nTop + (nBot - nTop) * 0.62, bx + botW, nBot);
+            ctx.quadraticCurveTo(bx, nBot + h * 0.016, bx - botW, nBot);
+            ctx.quadraticCurveTo(mx - botW * 0.92, nTop + (nBot - nTop) * 0.62, tx - topW, nTop);
+            ctx.closePath();
+        };
+        ctx.save();
+        ctx.lineJoin = 'round';
+        ctx.lineWidth = 2.4 * S;
+        ctx.strokeStyle = OUTLINE;
+        path(); ctx.stroke();
+        ctx.fillStyle = col.skin;
+        path(); ctx.fill();
+        // 下颌投影 + 前侧受光
+        ctx.save();
+        path(); ctx.clip();
+        ctx.fillStyle = 'rgba(96, 50, 24, 0.30)';
+        ctx.fillRect(bx - botW * 1.4, nTop, botW * 2.8, (nBot - nTop) * 0.44);
+        ctx.fillStyle = 'rgba(255, 240, 214, 0.16)';
+        ctx.fillRect(bx + botW * 0.10, nTop, botW * 0.85, nBot - nTop);
+        ctx.restore();
+        ctx.restore();
+    }
+
+    function drawHead(f, style, col, cx, headY, headR, face, s, pose, ph, wf) {
+        // 人脸轮廓：上半保持原来的正圆，下颌与下巴收窄
+        const headShape = () => {
+            ctx.beginPath();
+            ctx.arc(cx, headY, headR, Math.PI, 0, false);
+            ctx.quadraticCurveTo(cx + headR * 0.96, headY + headR * 0.50, cx + headR * 0.54, headY + headR * 0.84);
+            ctx.quadraticCurveTo(cx + headR * 0.26, headY + headR * 1.04, cx, headY + headR * 1.04);
+            ctx.quadraticCurveTo(cx - headR * 0.26, headY + headR * 1.04, cx - headR * 0.54, headY + headR * 0.84);
+            ctx.quadraticCurveTo(cx - headR * 0.96, headY + headR * 0.50, cx - headR, headY);
+            ctx.closePath();
+        };
+
+        // 耳朵：侧向只露出靠后的一只
+        {
+            const ex = cx - headR * 0.88;
+            const ey = headY + headR * 0.12;
+            ctx.fillStyle = OUTLINE;
+            ctx.beginPath(); ctx.arc(ex, ey, headR * 0.25 + 1.1, 0, Math.PI * 2); ctx.fill();
+            ctx.fillStyle = col.skin;
+            ctx.beginPath(); ctx.arc(ex, ey, headR * 0.25, 0, Math.PI * 2); ctx.fill();
+            ctx.fillStyle = col.skinDark;
+            ctx.beginPath(); ctx.arc(ex + headR * 0.03, ey + headR * 0.02, headR * 0.10, 0, Math.PI * 2); ctx.fill();
+        }
+
+        // 脸
+        ctx.save();
+        ctx.lineJoin = 'round';
+        ctx.lineWidth = 2.4 * s * 1.5;
+        ctx.strokeStyle = OUTLINE;
+        headShape(); ctx.stroke();
+        ctx.fillStyle = col.skin;
+        headShape(); ctx.fill();
+        // 背光侧脸
+        ctx.save();
+        headShape();
+        ctx.clip();
+        ctx.fillStyle = 'rgba(110, 60, 30, 0.16)';
+        ctx.fillRect(face > 0 ? cx - headR : cx, headY - headR * 1.2, headR, headR * 2.4);
+        ctx.restore();
+
+        // 五官整体向前（+x）偏移，形成侧/三四分脸
+        const fx = cx + headR * 0.17;
+
+        // 鼻子
+        ctx.fillStyle = col.skinDark;
+        ctx.beginPath();
+        ctx.moveTo(fx + face * headR * 0.66, headY + headR * 0.00);
+        ctx.lineTo(fx + face * headR * 0.24, headY + headR * 0.16);
+        ctx.lineTo(fx + face * headR * 0.60, headY + headR * 0.24);
+        ctx.closePath();
+        ctx.fill();
+
+        // 眼睛
+        const look = lookTargetX(f);
+        const gaze = clamp((look - f.x) / 160, -1, 1) * wf;
+        const bl = Math.sin(f.bob * 2.4 + f.depth * 9);
+        const blink = bl > 0.972;
+        const eyeY = headY - headR * 0.14;
+        const eyeR = headR * 0.21;
+        const eyes = [fx - headR * 0.40, fx + headR * 0.34];
+        for (let i = 0; i < 2; i++) {
+            const ex = eyes[i];
+            if (pose === 'ko') {
+                ctx.strokeStyle = '#1e1e1e';
+                ctx.lineWidth = headR * 0.13;
+                ctx.lineCap = 'round';
+                ctx.beginPath();
+                ctx.moveTo(ex - eyeR * 0.8, eyeY - eyeR * 0.5);
+                ctx.lineTo(ex + eyeR * 0.8, eyeY + eyeR * 0.5);
+                ctx.moveTo(ex + eyeR * 0.8, eyeY - eyeR * 0.5);
+                ctx.lineTo(ex - eyeR * 0.8, eyeY + eyeR * 0.5);
+                ctx.stroke();
+            } else if (blink) {
+                ctx.strokeStyle = '#1e1e1e';
+                ctx.lineWidth = headR * 0.11;
+                ctx.lineCap = 'round';
+                ctx.beginPath();
+                ctx.moveTo(ex - eyeR * 0.85, eyeY);
+                ctx.lineTo(ex + eyeR * 0.85, eyeY);
+                ctx.stroke();
+            } else {
+                ctx.fillStyle = '#fdfdfd';
+                ctx.beginPath(); ctx.ellipse(ex, eyeY, eyeR, eyeR * 0.92, 0, 0, Math.PI * 2); ctx.fill();
+                ctx.fillStyle = '#1e1e1e';
+                ctx.beginPath();
+                ctx.arc(ex + gaze * eyeR * 0.34, eyeY + (pose === 'hurt' ? eyeR * 0.2 : 0), eyeR * 0.52, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.fillStyle = 'rgba(255,255,255,0.9)';
+                ctx.beginPath();
+                ctx.arc(ex + gaze * eyeR * 0.34 - eyeR * 0.16, eyeY - eyeR * 0.18, eyeR * 0.18, 0, Math.PI * 2);
+                ctx.fill();
+            }
+        }
+
+        // 眉毛
+        const angry = (pose === 'jab' || pose === 'kick' || pose === 'rise');
+        const browT = pose === 'hurt' ? -0.6 : (angry ? style.brow : (pose === 'ko' ? 0 : -0.12));
+        ctx.strokeStyle = col.hair;
+        ctx.lineWidth = headR * 0.17;
+        ctx.lineCap = 'round';
+        for (let i = 0; i < 2; i++) {
+            const bx = eyes[i];
+            const by = headY - headR * 0.48;
+            ctx.beginPath();
+            ctx.moveTo(bx - headR * 0.24, by + headR * 0.16 * browT);
+            ctx.lineTo(bx + headR * 0.24, by - headR * 0.14 * browT);
+            ctx.stroke();
+        }
+
+        // 嘴
+        ctx.strokeStyle = '#1e1e1e';
+        ctx.lineWidth = headR * 0.13;
+        ctx.lineCap = 'round';
+        const mx0 = fx - headR * 0.05;
+        const my0 = headY + headR * 0.53;
+        ctx.beginPath();
+        if (pose === 'hurt' || pose === 'ko') {
+            ctx.arc(mx0, my0 + headR * 0.16, headR * 0.34, 1.15 * Math.PI, 1.85 * Math.PI);
+        } else if (pose === 'rise') {
+            ctx.arc(mx0, my0 + headR * 0.14, headR * 0.30, 1.15 * Math.PI, 1.85 * Math.PI);
+        } else if (angry && ph !== 'windup') {
+            ctx.moveTo(mx0 - headR * 0.28, my0);
+            ctx.lineTo(mx0 + face * headR * 0.30, my0 + headR * 0.06);
+        } else {
+            // 默认状态：抿嘴，不笑
+            ctx.moveTo(mx0 - headR * 0.22, my0 - headR * 0.02);
+            ctx.lineTo(mx0 + face * headR * 0.22, my0 + headR * 0.04);
+        }
+        ctx.stroke();
+
+        // 面罩（foe2）
+        if (style.mask) {
+            ctx.fillStyle = OUTLINE;
+            roundRectPath(fx - headR * 0.82, my0 - headR * 0.22, headR * 1.64, headR * 0.92, headR * 0.30);
+            ctx.fill();
+            ctx.fillStyle = style.cuffCol || '#3d2a63';
+            roundRectPath(fx - headR * 0.76, my0 - headR * 0.18, headR * 1.52, headR * 0.84, headR * 0.28);
+            ctx.fill();
+            ctx.fillStyle = 'rgba(255,255,255,0.14)';
+            roundRectPath(fx - headR * 0.76, my0 - headR * 0.18, headR * 1.52, headR * 0.22, headR * 0.10);
+            ctx.fill();
+        }
+
+        // 伤疤（foe1）
+        if (style.scar) {
+            ctx.strokeStyle = 'rgba(120, 50, 40, 0.8)';
+            ctx.lineWidth = headR * 0.10;
+            ctx.lineCap = 'round';
+            const sx = fx - face * headR * 0.46, sy = headY - headR * 0.10;
+            ctx.beginPath();
+            ctx.moveTo(sx, sy);
+            ctx.lineTo(sx - face * headR * 0.18, sy + headR * 0.52);
+            ctx.stroke();
+            for (let i = 0; i < 3; i++) {
+                const t = 0.2 + i * 0.3;
+                const px = sx - face * headR * 0.18 * t, py = sy + headR * 0.52 * t;
+                ctx.beginPath();
+                ctx.moveTo(px - headR * 0.12, py - headR * 0.05);
+                ctx.lineTo(px + headR * 0.10, py + headR * 0.05);
+                ctx.stroke();
+            }
+        }
+
+        // 头发
+        drawHair(style.hair, col.hair, cx, headY, headR, s);
+
+        // 头带 + 飘带（玩家）
+        if (style.headband) {
+            ctx.fillStyle = style.headband;
+            ctx.fillRect(cx - headR * 1.02, headY - headR * 0.56, headR * 2.04, headR * 0.30);
+            ctx.strokeStyle = OUTLINE;
+            ctx.lineWidth = 1.1 * s;
+            ctx.strokeRect(cx - headR * 1.02, headY - headR * 0.56, headR * 2.04, headR * 0.30);
+            const kx = cx - face * headR * 0.98;
+            const ky = headY - headR * 0.41;
+            const flut = Math.sin(f.bob * 7 + f.walkPhase) * headR * 0.16;
+            ctx.fillStyle = style.headband;
+            ctx.beginPath();
+            ctx.moveTo(kx, ky - headR * 0.10);
+            ctx.quadraticCurveTo(kx - face * headR * 0.60, ky + headR * 0.34 + flut, kx - face * headR * 0.95, ky + headR * 0.86 + flut * 1.7);
+            ctx.quadraticCurveTo(kx - face * headR * 0.52, ky + headR * 0.42 + flut, kx - face * headR * 0.22, ky + headR * 0.30);
+            ctx.closePath();
+            ctx.fill();
+            ctx.beginPath();
+            ctx.arc(kx, ky, headR * 0.17, 0, Math.PI * 2);
+            ctx.fill();
+        }
+        ctx.restore();
+    }
+
+    function fighterPose(f) {
+        const air = f.alt > 0.5;
+        const ph = attackPhase(f);
+        const moving = Math.abs(f.vx) > 20 || Math.abs(f.vDepth) > 0.06;
+        let pose = 'idle';
+        if (f.dead) pose = 'ko';
+        else if (ph === 'windup' || ph === 'active' || ph === 'recover') pose = MOVES[f.atk].kind;
+        else if (f.hurtT > 0 || f.invuln > 0) pose = 'hurt';
+        else if (air) pose = 'air';
+        else if (f.landT > 0) pose = 'land';
+        else if (moving) pose = 'walk';
+        return { pose: pose, phase: ph };
+    }
+
+    function drawFighter(f) {
+        const col = f.col;
+        const style = f.style;
+        const s = depthScale(f.depth);
+        const cx = f.x;
+        const wf = f.facing;      // 世界朝向（只用于倾身/视线）
+        const face = 1;           // 绘制空间：整体镜像后统一按“朝右”作画
+        const info = fighterPose(f);
+        const pose = info.pose;
+        const ph = info.phase;
+
+        const baseY = depthY(f.depth);
+        const feetY = baseY - f.alt;
+
+        // 取消跳起/下落时的压扁与拉伸缩放，体型只由角色本身的 build/height 决定
+        const hScale = style.height;
+        const wFactor = style.build;
+
+        const h = FIG_H * s * hScale;
+        const S = (h / FIG_BASE) * style.height;   // 用于姿势偏移的统一缩放（随 FIG_H 等比放大）
+
+        // ---- 体型比例（以总身高 h 为基准，约 6.5 头身，偏侧向）----
+        const headR = FIG_H * 0.078 * s * style.height * (style.headW || 1);
+        let shY = feetY - h * 0.805;
+        let hipY = feetY - h * 0.53;
+        let crotchY = feetY - h * 0.475;
+        // 落地缓冲：随时间衰减的下压量（代替被去掉的压扁缩放）
+        const landDip = (pose === 'land') ? Math.sin(clamp(f.landT / LAND_T, 0, 1) * Math.PI) * h * 0.038 : 0;
+        shY += landDip; hipY += landDip; crotchY += landDip;
+        // 可见脖子长度 = 肩颈根到下巴的间距；style.neck < 1 表示更短
+        const th0 = hipY - shY;
+        const neckLen = (0.184 * h - 2.04 * headR) * (style.neck || 1);
+        const headY0 = shY - th0 * 0.04 - neckLen - headR * 1.04;
+        // 躯干横向收窄：站立/行走/出招统一宽度；倒地时更窄，避免躺下后身体横向被拉长
+        const slim = pose === 'ko' ? 0.74 : 0.80;
+        const bodyK = wFactor * slim;
+        const shHalf = FIG_H * 0.165 * s * bodyK;
+        const waHalf = FIG_H * 0.105 * s * bodyK;
+        const hpHalf = FIG_H * 0.142 * s * bodyK;
+        const nk = shHalf * 0.36;
+        const w = shHalf * 2;
+        let headY = headY0;
+        // 侧身像共用的一条"颈轴"：领口开口、颈根凹线都挂在这条线上，
+        // 凹线右端与白色 V 领的前端点对齐，所以颈轴要压得比躯干中线靠前不少。
+        const neckCx = cx + nk * 0.43;
+        // 脖子与头在颈轴基础上再往胸口方向推一点（领口与凹线不动，保持对齐关系）
+        const neckFb = nk * 0.18;
+        const neckX = neckCx + neckFb;
+        const headX = neckCx + neckFb + nk * 0.18;
+        // 头颈整体再下压一点：颈根凹线前移后脖子露得偏长，压下来头才坐得住
+        headY += h * 0.007;
+
+        let lean = 0;
+        if (pose === 'jab' || pose === 'kick') lean = wf * (ph === 'windup' ? -0.06 : 0.10);
+        else if (pose === 'rise') lean = wf * (ph === 'windup' ? 0.14 : -0.12);
+        else if (pose === 'hurt') lean = -wf * 0.20;
+        else if (pose === 'ko') lean = -wf * 2.72;
+        else lean = clamp(f.vx / 900, -0.10, 0.10);
+
+        ctx.save();
+        // 左右朝向直接整体镜像：姿势天然左右对称，鞋头朝向也不再出错
+        const rotA = lean * 0.5 * wf;
+        ctx.translate(cx, feetY);
+        ctx.scale(wf, 1);
+        ctx.rotate(rotA);   // 镜像会翻转旋转方向，乘回来保持世界倾角不变
+        ctx.translate(-cx, -feetY);
+
+        const breathe = Math.sin(f.bob * 1.6) * 1.4;
+        const SHOE_H = 5.9 * S;
+
+        // ---- 腿 ----（绘制空间统一朝右，后腿 = 屏幕左，前腿 = 屏幕右）
+        let footL, footR, angL = 0, angR = 0, kneeBend = 3, lifts = [0, 0];
+        if (pose === 'ko') {
+            // 后仰被击躺：腿一条伸直一条蜷起，收得比较拢，避免横向拉长
+            footL = { x: cx - h * 0.168, y: feetY - SHOE_H };
+            footR = { x: cx + h * 0.108, y: feetY - SHOE_H - h * 0.050 };
+            angL = -0.62; angR = 0.42;
+            kneeBend = [7, 22];
+        } else if (pose === 'kick') {
+            const t = ph === 'windup' ? -0.5 : 1;
+            footL = { x: cx - h * 0.115, y: feetY - SHOE_H };
+            footR = { x: cx + face * h * 0.36 * t, y: feetY - h * 0.34 * (t > 0 ? 1 : 0.7) - SHOE_H };
+            angL = -0.12; angR = face * 0.30;
+            kneeBend = [5, 7];
+        } else if (pose === 'rise') {
+            footL = { x: cx - h * 0.105, y: feetY - SHOE_H };
+            footR = { x: cx + h * 0.065, y: feetY - SHOE_H - h * 0.095 };
+            angL = -0.35; angR = 0.30;
+            kneeBend = 12;
+        } else if (pose === 'air') {
+            const tuck = clamp(f.vy / 900, -1, 1);
+            footL = { x: cx - h * 0.10, y: feetY - SHOE_H - h * 0.053 };
+            footR = { x: cx + h * 0.087, y: feetY - SHOE_H - h * 0.053 - tuck * h * 0.04 };
+            angL = -0.30; angR = 0.26;
+            kneeBend = 11;
+        } else if (pose === 'land') {
+            // 落地缓冲：双脚分开踩实、屈膝吸收冲击
+            footL = { x: cx - h * 0.140, y: feetY - SHOE_H };
+            footR = { x: cx + h * 0.118, y: feetY - SHOE_H };
+            angL = -0.26; angR = 0.22;
+            kneeBend = [17, 15];
+        } else if (pose === 'hurt') {
+            footL = { x: cx - face * h * 0.08, y: feetY - SHOE_H };
+            footR = { x: cx + face * h * 0.067, y: feetY - SHOE_H - h * 0.04 };
+            angL = 0.24; angR = -0.20;
+            kneeBend = 10;
+        } else if (pose === 'walk') {
+            // 标准步行循环：腿反相摆动，支撑腿贴地、摆动腿抬膝
+            // leg0 = 后腿(髋在 -x)，leg1 = 前腿(髋在 +x)，两者反相
+            const wp = f.walkPhase;
+            // 步幅跟随水平速度：纵向游走/近身小步时收紧，避免原地跨大步
+            const stride = walkStride(f);
+            const c0 = Math.cos(wp);
+            // 后腿 φ=0 时在后方(蹬地)、φ=π 时在前方(落地)；前腿相反
+            const l0 = Math.max(0, Math.sin(wp));
+            const l1 = Math.max(0, -Math.sin(wp));
+            footL = { x: cx - stride * c0, y: feetY - SHOE_H - l0 * h * 0.075 };
+            footR = { x: cx + stride * c0, y: feetY - SHOE_H - l1 * h * 0.075 };
+            // 后脚跟落地脚尖上抬、蹬地脚尖下压，摆动中段放平
+            angL = 0.22 * c0;
+            angR = -0.22 * c0;
+            lifts = [l0, l1];
+            kneeBend = [4 + l0 * 16, 4 + l1 * 16];
+        } else {
+            // 站立/格斗式：一前一后，侧向站位
+            footL = { x: cx - h * 0.115, y: feetY - SHOE_H };
+            footR = { x: cx + h * 0.085, y: feetY - SHOE_H };
+            angL = 0.09; angR = 0.06;
+            kneeBend = [6, 4];
+            hipY += breathe;
+            shY += breathe * 0.7;
+            headY += Math.sin(f.bob * 1.6 + 0.7) * 1.2;
+        }
+
+// ---- 手臂 ----（侧向：朝右时右臂压在最上层，左臂被身体遮挡）
+        const armY0 = shY + h * 0.05;
+        // 朝右时：右肩（近侧）压低；左肩（远侧/出拳臂）关节点随姿势移动——
+        // 出拳时前移并抬高让大臂多露一截，站立/行走时左移藏进躯干，不露肩
+        // 右肩随侧身像的颈轴一起前移；肘的位置由 SH_BACK_REF 决定，肩往前不会把肘带走
+        const SH_BACK_REF = cx - shHalf * 0.84;
+        const shBack = { x: cx - shHalf * 0.62, y: armY0 + h * 0.002 };
+        const shFrontX = pose === 'jab' ? cx + shHalf * 1.00
+            : (pose === 'idle' || pose === 'walk') ? cx + shHalf * 0.72 : cx + shHalf * 0.84;
+        const shFrontY = pose === 'jab' ? armY0 - h * 0.012 : armY0 + h * 0.020;
+        const shFront = { x: shFrontX, y: shFrontY };
+        let handB, handF;
+        if (pose === 'jab') {
+            const ext = ph === 'windup' ? 0.18 : (ph === 'active' ? 1 : 0.55);
+            // 右臂（后手）收到胸前，肘部只轻微下沉，保留小臂长度
+            handB = { x: cx + w * 0.02, y: armY0 + h * 0.150 };
+            handF = { x: cx + face * (w * 0.30 + ext * w * 1.22), y: armY0 - h * 0.055 };
+        } else if (pose === 'kick') {
+            handB = { x: cx - w * 0.46, y: armY0 + h * 0.24 };
+            handF = { x: cx + face * w * 0.88, y: armY0 - h * 0.06 };
+        } else if (pose === 'rise') {
+            const up = ph === 'windup' ? 0.15 : 1;
+            handB = { x: cx - w * 0.40, y: armY0 + h * 0.26 };
+            handF = { x: cx + face * w * 0.44, y: armY0 - h * 0.52 * up };
+        } else if (pose === 'hurt') {
+            handB = { x: cx - face * w * 0.44, y: armY0 - h * 0.06 };
+            handF = { x: cx + face * w * 0.55, y: armY0 + h * 0.24 };
+        } else if (pose === 'air') {
+            handB = { x: cx - w * 0.56, y: armY0 - h * 0.20 };
+            handF = { x: cx + w * 0.64, y: armY0 - h * 0.26 };
+        } else if (pose === 'land') {
+            // 落地缓冲：双臂自然下沉外张，右臂收到体侧前方，避免甩到背后
+            handB = { x: cx - w * 0.26, y: armY0 + h * 0.185 };
+            handF = { x: cx + w * 0.60, y: armY0 + h * 0.145 };
+        } else if (pose === 'ko') {
+            // 手臂摊开但收得较拢，一只压在身下一只甩向侧后方
+            handB = { x: cx - w * 0.78, y: armY0 + h * 0.09 };
+            handF = { x: cx + w * 0.24, y: armY0 - h * 0.02 };
+        } else if (pose === 'walk') {
+            // 手臂与同侧腿反相摆动（后臂随前腿前摆）
+            const armSw = -Math.cos(f.walkPhase) * h * 0.088;
+            handB = { x: cx - w * 0.24 - armSw, y: armY0 + h * 0.26 - Math.abs(armSw) * 0.20 };
+            handF = { x: cx + w * 0.30 + armSw, y: armY0 + h * 0.25 - Math.abs(armSw) * 0.20 };
+        } else {
+            // 站立：手臂自然下垂，拳头朝下；左臂稍向右，前臂让开躯干露出一点身体
+            handB = { x: cx - w * 0.20, y: armY0 + h * 0.285 };
+            handF = { x: cx + w * 0.30, y: armY0 + h * 0.240 };
+        }
+
+        const sleeveLen = style.shirtStyle === 'jacket' ? 1 : (style.shirtStyle === 'tee' ? 0.42 : 0);
+        const upperArmW = h * 0.074;
+        const foreArmW = h * 0.053;
+        const fistR = h * 0.047;
+        const armHands = [[shBack, handB, -1, SH_BACK_REF], [shFront, handF, 1, shFrontX]];
+        const drawArm = (si) => {
+            const sh0 = armHands[si][0], hd0 = armHands[si][1], side = armHands[si][2];
+            const shRefX = armHands[si][3];
+            // 左臂整体向右（前）平移；肩关节仍锚在躯干内，不会露出躯干边界
+            const off = side > 0 ? h * 0.034 : 0;
+            const sh = { x: sh0.x, y: sh0.y };
+            const hand = { x: hd0.x + off, y: hd0.y };
+            // 大臂缩短、小臂加长；肘部向身后（绘制空间 -x）反折
+            // 出拳时：出拳臂几乎伸直（外扩小），后手臂大臂向后大幅摆动，把小臂带到胸前
+            const isJab = pose === 'jab';
+            const punchArm = side > 0;
+            const outF = isJab ? (punchArm ? 0.005 : 0.078) : 0.030;
+            const dropF = isJab ? (punchArm ? 0.022 : 0.008) : 0;
+            // 肘的位置按原肩位推导：右肩前移只改变大臂的起点，肘与小臂维持原样
+            const mx = shRefX + (hand.x - shRefX) * 0.38 - h * outF;
+            const my = sh.y + (hand.y - sh.y) * 0.38 + h * (outF + dropF);
+            const upperCol = sleeveLen > 0.1 ? col.shirtDark : col.skin;
+            const foreCol = sleeveLen >= 0.9 ? col.shirtDark : col.skin;
+            // 小臂与拳
+            drawForearmFist(mx, my, hand.x, hand.y, foreArmW, fistR, foreCol, side, col, S);
+            // 大臂：右臂肩部内侧不描轮廓
+            drawUpperArm(sh.x, sh.y, mx, my, upperArmW, upperCol, side < 0, S);
+            if (style.tattoo) {
+                drawBand(sh.x, sh.y, mx, my, 0.50, upperArmW * 0.96, upperArmW * 0.22, 'rgba(30, 42, 78, 0.55)');
+                drawBand(sh.x, sh.y, mx, my, 0.76, upperArmW * 0.90, upperArmW * 0.18, 'rgba(30, 42, 78, 0.45)');
+            }
+        };
+
+        const feet = [footL, footR];
+        const angles = [angL, angR];
+        const sides = [-1, 1];
+        // 走动时躯干更窄，腿要相应加粗，否则大腿与身体衔接像一根杆
+        const legK = pose === 'walk' ? 1.22 : (pose === 'air' ? 1.08 : 1);
+        const thighW = h * 0.090 * legK;
+        const shinW = h * 0.060 * (pose === 'walk' ? 1.10 : 1);
+        // 侧面视角下两髋几乎重合，走动时若再分开，摆到后方的腿就会横穿另一条腿
+        const hipSep = pose === 'walk' ? hpHalf * 0.16 : hpHalf * 0.42;
+        for (let fi = 0; fi < 2; fi++) {
+            const foot = feet[fi];
+            const side = sides[fi];
+            const kb = Array.isArray(kneeBend) ? kneeBend[fi] : kneeBend;
+            const liftv = lifts[fi];
+            const hipJX = cx + side * hipSep;
+            // 髋点略微上移并埋进短裤内部，避免出现关节断口
+            const hipJY = hipY + h * 0.012;
+            const kx = (hipJX + foot.x) / 2 + face * kb * S * 0.9 + side * S * 2.5;
+            const ky = hipJY + (foot.y - hipJY) * (0.54 - liftv * 0.17);
+            // 远端腿整体压暗，两腿交叠时仍能分清前后
+            const legUp = fi === 0 ? col.pantsDark : col.pants;
+            // 髋部球形过渡：抹平大腿根与骨盆之间的硬折角
+            ctx.fillStyle = OUTLINE;
+            ctx.beginPath();
+            ctx.arc(hipJX, hipJY, thighW * 0.60, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.fillStyle = legUp;
+            ctx.beginPath();
+            ctx.arc(hipJX, hipJY, thighW * 0.60 - 1.2 * S, 0, Math.PI * 2);
+            ctx.fill();
+            drawLeg(hipJX, hipJY, kx, ky, foot.x, foot.y, thighW, shinW, legUp, col.pantsDark, S);
+            drawShoe(foot.x, foot.y, angles[fi], S * 0.90, col, style.shoeAccent);
+        }
+
+        // ---- 左臂（绘制空间屏幕右侧）：先画，被身体遮挡 ----
+        drawArm(1);
+
+        // ---- 骨盆/短裤：衔接躯干与大腿 ----
+        const crotchDrop = crotchY - hipY;
+        // 髋部横向过渡块，让短裤到大腿形成连续的斜面而不是两个独立体块
+        ctx.fillStyle = OUTLINE;
+        tracePelvisPath(cx, hipY - h * 0.028, hpHalf * 1.10, crotchDrop + h * 0.052);
+        ctx.fill();
+        ctx.fillStyle = col.pantsDark;
+        tracePelvisPath(cx, hipY - h * 0.028, hpHalf * 1.06, crotchDrop + h * 0.048);
+        ctx.fill();
+        ctx.fillStyle = col.pants;
+        tracePelvisPath(cx, hipY, hpHalf, crotchDrop);
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(0,0,0,0.22)';
+        ctx.lineWidth = 1.6 * S;
+        ctx.beginPath();
+        ctx.moveTo(cx, hipY + crotchDrop * 0.20);
+        ctx.lineTo(cx, hipY + crotchDrop * 0.92);
+        ctx.stroke();
+
+        // ---- 脖子 + 头：压在躯干衣服图层之后 ----
+        const nkG = neckGeom(neckX, headX, headY, headR, shY, shHalf, h);
+        drawNeck(nkG, h, col, S);
+        drawHead(f, style, col, headX, headY, headR, face, s, pose, ph, wf);
+
+        // ---- 躯干 ----
+        const torsoTh = hipY - shY;
+        // 侧身像的背侧收窄：躯干最左不超过近侧手臂（肩膀）画到的最左边
+        const backX = shBack.x - upperArmW * 0.5;
+        ctx.lineJoin = 'round';
+        ctx.lineWidth = 3.0 * S;
+        ctx.strokeStyle = OUTLINE;
+        traceTorsoPath(cx, neckCx, backX, shY, hipY, shHalf, waHalf, hpHalf);
+        ctx.stroke();
+        ctx.fillStyle = col.shirt;
+        traceTorsoPath(cx, neckCx, backX, shY, hipY, shHalf, waHalf, hpHalf);
+        ctx.fill();
+        // 体积光影 + 服装细节（统一裁剪到躯干内）
+        ctx.save();
+        traceTorsoPath(cx, neckCx, backX, shY, hipY, shHalf, waHalf, hpHalf);
+        ctx.clip();
+        const tX0 = cx - shHalf * 1.3, tW = shHalf * 2.6;
+        ctx.fillStyle = 'rgba(8, 12, 26, 0.24)';
+        ctx.fillRect(face > 0 ? tX0 : cx, shY - torsoTh * 0.3, tW * 0.5, torsoTh * 1.5);
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.14)';
+        ctx.fillRect(face > 0 ? cx + shHalf * 0.45 : tX0, shY - torsoTh * 0.3, tW * 0.2, torsoTh * 1.5);
+
+        // 服装款式细节
+        // 领口一律以颈轴 neckCx 为基准，并与颈根凹线、脖子共用同一个中心
+        const nx0 = neckCx;
+        const nY = shY - torsoTh * 0.05;
+        if (style.shirtStyle === 'tee') {
+            // V 领：后颈侧收窄抬高、前胸侧放宽降低
+            ctx.fillStyle = style.cuffCol;
+            ctx.beginPath();
+            ctx.moveTo(nx0 - nk * 0.93, nY - torsoTh * 0.02);
+            ctx.lineTo(nx0 + nk * 1.35, nY + torsoTh * 0.012);
+            ctx.quadraticCurveTo(nx0 + nk * 0.80, shY + h * 0.050, nx0 + nk * 0.58, shY + h * 0.058);
+            ctx.closePath();
+            ctx.fill();
+            // 领口罗纹：V 领外圈一圈窄边
+            ctx.strokeStyle = style.cuffCol;
+            ctx.lineWidth = Math.max(1.2, 2.4 * S);
+            ctx.lineJoin = 'round';
+            ctx.lineCap = 'round';
+            ctx.beginPath();
+            ctx.moveTo(nx0 - nk * 1.74, nY - torsoTh * 0.05);
+            ctx.quadraticCurveTo(nx0 + nk * 0.08, shY + h * 0.070, nx0 + nk * 0.50, shY + h * 0.090);
+            ctx.quadraticCurveTo(nx0 + nk * 1.42, shY + h * 0.036, nx0 + nk * 2.02, nY + torsoTh * 0.01);
+            ctx.stroke();
+            // 袖窿缝线：领口端锚在颈轴上
+            ctx.strokeStyle = 'rgba(0, 0, 0, 0.15)';
+            ctx.lineWidth = Math.max(1, 1.7 * S);
+            for (const sd of [-1, 1]) {
+                ctx.beginPath();
+                ctx.moveTo(nx0 + sd * nk * 1.55, shY + torsoTh * 0.09);
+                ctx.quadraticCurveTo(cx + sd * shHalf * 0.82, shY + torsoTh * 0.14, cx + sd * shHalf * 0.99, shY + torsoTh * 0.44);
+                ctx.stroke();
+            }
+        } else if (style.shirtStyle === 'tank') {
+            // 露出胸口：以后颈侧浅、前胸侧深的不对称开口，中心同样对齐颈轴
+            ctx.fillStyle = col.skin;
+            ctx.beginPath();
+            ctx.moveTo(nx0 - shHalf * 0.40, shY + 1);
+            ctx.lineTo(nx0 + shHalf * 0.76, shY + 1);
+            ctx.quadraticCurveTo(nx0 + shHalf * 0.24, shY + h * 0.150, nx0 - shHalf * 0.40, shY + 1);
+            ctx.closePath();
+            ctx.fill();
+            // 粗肩带（贴着肩部斜线）
+            ctx.fillStyle = col.shirtDark;
+            for (const sd of [-1, 1]) {
+                ctx.beginPath();
+                ctx.moveTo(cx + sd * shHalf, shY + torsoTh * 0.10);
+                ctx.lineTo(cx + sd * shHalf * 0.58, shY - torsoTh * 0.05);
+                ctx.lineTo(cx + sd * shHalf * 0.30, shY - torsoTh * 0.05);
+                ctx.lineTo(cx + sd * shHalf * 0.62, shY + torsoTh * 0.16);
+                ctx.closePath();
+                ctx.fill();
+            }
+        } else {
+            // 立领 + 拉链 + 口袋：立领以颈轴为基准，拉链跟着偏向胸口一侧
+            ctx.fillStyle = col.shirtDark;
+            ctx.beginPath();
+            ctx.moveTo(nx0 - shHalf * 1.30, shY - torsoTh * 0.10);
+            ctx.lineTo(nx0 + shHalf * 1.30, shY - torsoTh * 0.10);
+            ctx.lineTo(nx0 + shHalf * 1.30, shY + h * 0.062);
+            ctx.lineTo(nx0 - shHalf * 1.30, shY + h * 0.062);
+            ctx.closePath();
+            ctx.fill();
+            ctx.fillStyle = 'rgba(225, 228, 240, 0.7)';
+            ctx.fillRect(nx0 - 1.3 * S, shY - torsoTh * 0.10, 2.6 * S, torsoTh + h * 0.14);
+            ctx.strokeStyle = 'rgba(0,0,0,0.28)';
+            ctx.lineWidth = 1.6 * S;
+            ctx.strokeRect(cx - shHalf * 0.86, shY + h * 0.16, shHalf * 0.60, h * 0.085);
+            ctx.strokeRect(cx + shHalf * 0.26, shY + h * 0.16, shHalf * 0.60, h * 0.085);
+        }
+
+        // 布料褶皱：体侧与腋下的柔和折痕（所有款式通用）
+        ctx.lineCap = 'round';
+        ctx.lineWidth = Math.max(1, 2.4 * S);
+        ctx.strokeStyle = 'rgba(8, 12, 26, 0.13)';
+        const folds = [
+            [cx - waHalf * 0.98, shY + torsoTh * 0.50, cx - waHalf * 0.74, shY + torsoTh * 0.86],
+            [cx + waHalf * 1.02, shY + torsoTh * 0.44, cx + waHalf * 0.80, shY + torsoTh * 0.82],
+            [cx - shHalf * 0.30, shY + torsoTh * 0.62, cx + shHalf * 0.16, shY + torsoTh * 0.90]
+        ];
+        for (let i = 0; i < folds.length; i++) {
+            const fd = folds[i];
+            ctx.beginPath();
+            ctx.moveTo(fd[0], fd[1]);
+            ctx.quadraticCurveTo((fd[0] + fd[2]) / 2 + face * h * 0.010, (fd[1] + fd[3]) / 2, fd[2], fd[3]);
+            ctx.stroke();
+        }
+        // 褶皱旁的高光
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.10)';
+        ctx.lineWidth = Math.max(0.8, 1.6 * S);
+        for (let i = 0; i < folds.length; i++) {
+            const fd = folds[i];
+            ctx.beginPath();
+            ctx.moveTo(fd[0] + face * h * 0.006, fd[1]);
+            ctx.quadraticCurveTo((fd[0] + fd[2]) / 2 + face * h * 0.018, (fd[1] + fd[3]) / 2, fd[2] + face * h * 0.006, fd[3]);
+            ctx.stroke();
+        }
+
+        // 腰带：后端高、前端低、中间下垂的弧形带子，绕腰的立体感更强
+        const bHalf = shHalf * 1.34;
+        const by0 = hipY - h * 0.070;          // 后端上缘（偏高）
+        const by1 = by0 + h * 0.030;           // 前端上缘（更低）
+        const bH = h * 0.036;                  // 带面厚度
+        const bSag = h * 0.012;                // 中段相对两端连线的额外下垂
+        // 二次曲线的控制点要压在两端连线之下，中段才会真正往下坠
+        const bCtrlY = (by0 + by1) / 2 + bSag * 2;
+        const bq = (a, b, c, t) => (1 - t) * (1 - t) * a + 2 * (1 - t) * t * b + t * t * c;
+        const beltTop = (t) => bq(by0, bCtrlY, by1, t);
+        const beltPath = (dy) => {
+            ctx.beginPath();
+            ctx.moveTo(cx - bHalf, by0 + dy);
+            ctx.quadraticCurveTo(cx, bCtrlY + dy, cx + bHalf, by1 + dy);
+            ctx.lineTo(cx + bHalf, by1 + bH + dy);
+            ctx.quadraticCurveTo(cx, bCtrlY + bH + dy, cx - bHalf, by0 + bH + dy);
+            ctx.closePath();
+        };
+        // 带子在裤子上压出的投影
+        ctx.fillStyle = 'rgba(8, 12, 26, 0.20)';
+        beltPath(h * 0.018);
+        ctx.fill();
+        // 带身
+        ctx.fillStyle = col.belt;
+        beltPath(0);
+        ctx.fill();
+        // 上缘受光、下缘背光
+        ctx.strokeStyle = 'rgba(255,255,255,0.34)';
+        ctx.lineWidth = Math.max(1.2, 2.2 * S);
+        ctx.lineCap = 'round';
+        ctx.beginPath();
+        ctx.moveTo(cx - bHalf, by0);
+        ctx.quadraticCurveTo(cx, bCtrlY, cx + bHalf, by1);
+        ctx.stroke();
+        ctx.strokeStyle = 'rgba(0, 0, 0, 0.24)';
+        ctx.lineWidth = Math.max(1, 1.7 * S);
+        ctx.beginPath();
+        ctx.moveTo(cx - bHalf, by0 + bH);
+        ctx.quadraticCurveTo(cx, bCtrlY + bH, cx + bHalf, by1 + bH);
+        ctx.stroke();
+        // 皮带扣：顺着带面的切线倾斜，横向（宽大于高）压在腰带上
+        const tb = 0.70;
+        const bxc = cx - bHalf + tb * bHalf * 2;
+        const byc = beltTop(tb) + bH * 0.5;
+        const bslope = 2 * (1 - tb) * (bCtrlY - by0) + 2 * tb * (by1 - bCtrlY);
+        ctx.save();
+        ctx.translate(bxc, byc);
+        ctx.rotate(Math.atan2(bslope, bHalf * 2));
+        const bkw = bH * 2.1, bkh = h * 0.056;
+        ctx.fillStyle = OUTLINE;
+        roundRectPath(-bkw / 2, -bkh / 2, bkw, bkh, h * 0.010);
+        ctx.fill();
+        ctx.fillStyle = 'rgba(238, 242, 250, 0.92)';
+        roundRectPath(-bkw / 2 + h * 0.006, -bkh / 2 + h * 0.005, bkw - h * 0.012, bkh - h * 0.010, h * 0.007);
+        ctx.fill();
+        // 中间的带舌（竖向穿过扣身）
+        ctx.fillStyle = col.belt;
+        ctx.fillRect(-h * 0.008, -bkh / 2 + h * 0.005, h * 0.016, bkh - h * 0.010);
+        // 扣面上缘受光
+        ctx.fillStyle = 'rgba(255,255,255,0.45)';
+        ctx.fillRect(-bkw / 2 + h * 0.006, -bkh / 2 + h * 0.005, bkw - h * 0.012, h * 0.008);
+        ctx.restore();
+        ctx.restore();
+
+        drawArm(0);   // 右臂（绘制空间屏幕左侧）：后画，压在躯干上
+
+        ctx.restore();
+
+        // ---- 出招瞬间：在拳/脚的实际位置生成打击特效 ----
+        // 只在真正打中目标时才出特效（hitIds 在命中帧由 updateAttack 填充）
+        if (!f.impactDone && f.atk && !f.dead && (ph === 'active' || ph === 'recover')
+            && f.hitIds && f.hitIds.length > 0) {
+            f.impactDone = true;
+            let lx = handF.x, ly = handF.y, mv = MOVES[f.atk];
+            if (mv.kind === 'kick') {
+                lx = footR.x + face * h * 0.075;
+                ly = footR.y - SHOE_H * 0.35;
+            } else if (mv.kind === 'rise') {
+                lx = handF.x + face * h * 0.055;
+                ly = handF.y - h * 0.012;
+            } else {
+                lx = handF.x + face * h * 0.055;
+                ly = handF.y;
+            }
+            // 绘制空间->世界：绕 (cx,feetY) 旋转 rotA，再按 wf 镜像
+            const ox = lx - cx, oy = ly - feetY;
+            const ca = Math.cos(rotA), sa = Math.sin(rotA);
+            const rx = (ox * ca - oy * sa) * wf;
+            const ry = (ox * sa + oy * ca);
+            spawnStrikeFx(f, mv, cx + rx, feetY + ry);
+        }
+
+        // 受击闪白（倒地后不再显示椭圆白光）
+        if (f.flash > 0 && !f.dead) {
+            ctx.save();
+            ctx.globalAlpha = clamp(f.flash / 0.16, 0, 1) * 0.75;
+            ctx.globalCompositeOperation = 'lighter';
+            ctx.fillStyle = '#ffffff';
+            ctx.beginPath();
+            ctx.ellipse(cx, feetY - h * 0.52, shHalf * 1.55, h * 0.55, 0, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.restore();
+        }
+    }
+
+    function drawParticles() {
+        for (let i = 0; i < particles.length; i++) {
+            const q = particles[i];
+            const a = clamp(q.life / q.max, 0, 1);
+            ctx.save();
+            ctx.globalAlpha = a;
+            ctx.fillStyle = q.col;
+            ctx.beginPath();
+            ctx.arc(q.x, q.y, q.r * a + 0.6, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.restore();
+        }
+    }
+
+    function drawFloaters() {
+        ctx.save();
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.font = 'bold 24px "Courier New", monospace';
+        for (let i = 0; i < floaters.length; i++) {
+            const f = floaters[i];
+            ctx.globalAlpha = clamp(f.life * 2.2, 0, 1);
+            ctx.fillStyle = f.color;
+            ctx.shadowColor = '#000000aa';
+            ctx.shadowBlur = 5;
+            ctx.fillText(f.text, f.x, depthY(f.depth) - f.alt - FIG_H * depthScale(f.depth) * 0.9);
+        }
+        ctx.restore();
+        ctx.globalAlpha = 1;
+        ctx.shadowBlur = 0;
+    }
+
+    // ==================== 绘制：HUD ====================
+    function drawBar(x, y, w, h, ratio, fill, back) {
+        ctx.fillStyle = back || 'rgba(8, 10, 20, 0.85)';
+        roundRectPath(x, y, w, h, h / 2);
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(255,255,255,0.10)';
+        ctx.lineWidth = 1;
+        roundRectPath(x + 1, y + 1, w - 2, h - 2, (h - 2) / 2);
+        ctx.stroke();
+        const fw = Math.max(0, (w - 6) * clamp(ratio, 0, 1));
+        if (fw > 1) {
+            const g = ctx.createLinearGradient(x, y, x + w, y);
+            g.addColorStop(0, fill[0]);
+            g.addColorStop(1, fill[1]);
+            ctx.fillStyle = g;
+            roundRectPath(x + 3, y + 3, fw, h - 6, (h - 6) / 2);
+            ctx.fill();
+        }
+    }
+
+    function drawHud() {
+        ctx.fillStyle = hudBgGrad;
+        ctx.fillRect(0, 0, W, HUD_H);
+        ctx.strokeStyle = 'rgba(120, 170, 210, 0.30)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(0, HUD_H - 0.5);
+        ctx.lineTo(W, HUD_H - 0.5);
+        ctx.stroke();
+        // HUD 底部渐隐，避免与场景硬接缝
+        const fade = ctx.createLinearGradient(0, HUD_H, 0, HUD_H + 26);
+        fade.addColorStop(0, 'rgba(8, 10, 20, 0.75)');
+        fade.addColorStop(1, 'rgba(8, 10, 20, 0)');
+        ctx.fillStyle = fade;
+        ctx.fillRect(0, HUD_H, W, 26);
+
+        ctx.textBaseline = 'middle';
+
+        // ---- 玩家 ----
+        const pw = 360;
+        ctx.font = 'bold 16px "Courier New", monospace';
+        ctx.textAlign = 'left';
+        ctx.fillStyle = '#9bf6b0';
+        ctx.fillText('你', 20, 26);
+        drawBar(50, 16, pw - 50, 20, player.hp / player.maxHp, ['#7ee08a', '#4cc76a']);
+        ctx.font = 'bold 12px "Courier New", monospace';
+        ctx.textAlign = 'right';
+        ctx.fillStyle = 'rgba(230,240,255,0.8)';
+        ctx.fillText(Math.max(0, Math.ceil(player.hp)) + ' / ' + player.maxHp, pw + 14, 26);
+
+        // 技能冷却
+        const order = ['punch', 'kick', 'rise'];
+        for (let i = 0; i < order.length; i++) {
+            const key = order[i];
+            const mv = MOVES[key];
+            const bx = 20 + i * 82;
+            const by = 44;
+            const ready = player.cooldowns[key] <= 0;
+            ctx.fillStyle = ready ? 'rgba(60, 96, 140, 0.9)' : 'rgba(38, 46, 68, 0.9)';
+            roundRectPath(bx, by, 74, 22, 7);
+            ctx.fill();
+            const ratio = ready ? 1 : 1 - (player.cooldowns[key] / mv.cd);
+            ctx.fillStyle = ready ? 'rgba(155, 246, 176, 0.28)' : 'rgba(120, 140, 190, 0.20)';
+            roundRectPath(bx, by + 22 - 22 * clamp(ratio, 0, 1), 74, 22 * clamp(ratio, 0, 1), 7);
+            ctx.fill();
+            ctx.font = 'bold 12px "Courier New", monospace';
+            ctx.textAlign = 'center';
+            ctx.fillStyle = ready ? '#dff5e6' : 'rgba(200,210,230,0.55)';
+            ctx.fillText(mv.label + ' ' + mv.key, bx + 37, by + 11);
+        }
+
+        // ---- 敌人 ----
+        for (let i = 0; i < foes.length; i++) {
+            const f = foes[i];
+            const ew = 300;
+            const ex = W - 20 - ew;
+            const ey = 16 + i * 36;
+            ctx.font = 'bold 13px "Courier New", monospace';
+            ctx.textAlign = 'right';
+            ctx.fillStyle = f.dead ? 'rgba(180,180,190,0.5)' : '#ffb3b3';
+            ctx.fillText(f.dead ? 'KO' : '打手 ' + (i + 1), W - 20, ey - 3);
+            const cols = f.kind === 'foe1' ? ['#ff8f8f', '#e04b4b'] : ['#c39bff', '#8250d8'];
+            drawBar(ex, ey, ew, 16, f.hp / f.maxHp, cols);
+        }
+
+        // ---- 中央信息 ----
+        ctx.textAlign = 'center';
+        ctx.font = 'bold 17px "Courier New", monospace';
+        ctx.fillStyle = '#ffd966';
+        ctx.fillText('第 ' + wave + ' 波', W / 2, 22);
+        ctx.font = 'bold 24px "Courier New", monospace';
+        ctx.fillStyle = '#ffffff';
+        ctx.fillText(String(score), W / 2, 50);
+
+        if (combo > 1 && comboTimer > 0) {
+            ctx.font = 'bold 15px "Courier New", monospace';
+            ctx.fillStyle = '#ff9ff3';
+            ctx.fillText(combo + ' 连击', W / 2, 70);
+        }
+    }
+
+    function drawHint() {
+        if (hintTimer <= 0) return;
+        const a = clamp(hintTimer, 0, 1);
+        ctx.save();
+        ctx.globalAlpha = a;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.font = 'bold 18px "Courier New", monospace';
+        ctx.fillStyle = 'rgba(10, 14, 26, 0.85)';
+        const lines = [
+            'WASD / 方向键 / 手柄十字键 移动    K 跳跃    J 拳    L 脚    I 技能',
+            '手柄：十字键 移动    A 跳跃    X 拳    B 脚    Y 技能',
+            '必须与对手处在同一条水平线上才能击中'
+        ];
+        for (let i = 0; i < lines.length; i++) {
+            const tw = ctx.measureText(lines[i]).width + 30;
+            const y = HUD_H + 30 + i * 26;
+            roundRectPath(W / 2 - tw / 2, y - 12, tw, 24, 12);
+            ctx.fill();
+            ctx.fillStyle = '#dbe7ff';
+            ctx.fillText(lines[i], W / 2, y);
+            ctx.fillStyle = 'rgba(10, 14, 26, 0.85)';
+        }
+        ctx.restore();
+    }
+
+    function drawGameOver() {
+        const a = clamp(overTimer / 0.6, 0, 1);
+        ctx.save();
+        ctx.globalAlpha = a * 0.72;
+        ctx.fillStyle = '#05060c';
+        ctx.fillRect(0, 0, W, H);
+        ctx.globalAlpha = a;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.font = 'bold 62px "Courier New", monospace';
+        ctx.fillStyle = '#ff6b6b';
+        ctx.fillText('K.O.', W / 2, H / 2 - 40);
+        ctx.font = 'bold 24px "Courier New", monospace';
+        ctx.fillStyle = '#ffffff';
+        ctx.fillText('得分 ' + score + '    到达第 ' + wave + ' 波', W / 2, H / 2 + 16);
+        ctx.font = 'bold 18px "Courier New", monospace';
+        ctx.fillStyle = 'rgba(220,230,255,0.75)';
+        ctx.fillText('按 Enter / R 或 手柄 Start 重新开始', W / 2, H / 2 + 62);
+        ctx.restore();
+    }
+
+    function draw() {
+        applyCanvasTransform();
+        ctx.clearRect(0, 0, W, H);
+
+        const sx = shake > 0 ? rand(-shake, shake) : 0;
+        const sy = shake > 0 ? rand(-shake, shake) : 0;
+        ctx.save();
+        ctx.translate(sx, sy);
+
+        drawBackdrop();
+
+        // 影子画在人物之下
+        const all = [player, ...foes];
+        for (let i = 0; i < all.length; i++) drawShadow(all[i]);
+
+        // 按纵深从远到近排序绘制
+        all.sort((a, b) => b.depth - a.depth);
+        for (let i = 0; i < all.length; i++) drawFighter(all[i]);
+
+        drawParticles();
+        drawImpacts();
+        drawFloaters();
+
+        ctx.restore();
+
+        drawHud();
+        drawHint();
+        if (gameOver) drawGameOver();
+
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'alphabetic';
+    }
+
+    // ==================== 主循环 ====================
+    let lastTime = 0;
+    function gameLoop(timestamp) {
+        if (!lastTime) lastTime = timestamp;
+        let dt = (timestamp - lastTime) / 1000;
+        lastTime = timestamp;
+        if (dt > 0.1) dt = 0.1;
+        if (dt < 0.001) dt = 0.001;
+
+        update(dt);
+        draw();
+        requestAnimationFrame(gameLoop);
+    }
+
+    // ==================== 初始化 ====================
+    updateFullscreenButton();
+    resizeCanvas();
+    rebuildGradients();
+    resetGame();
+    requestAnimationFrame(() => { resizeCanvas(); requestAnimationFrame(resizeCanvas); });
+    requestAnimationFrame(gameLoop);
+})();
+</script>
+</body>
+</html>
