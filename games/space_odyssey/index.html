@@ -105,7 +105,7 @@
 (function() {
     'use strict';
 
-    const VERSION = '20261014-2230';
+    const VERSION = '20261015-1717';
 
     const canvas = document.getElementById('gameCanvas');
     const ctx = canvas.getContext('2d');
@@ -144,7 +144,6 @@
 
     // 角色尺寸（俯视基准单位）
     const CHAR_S = 46;          // 一个"身位"
-    const CHAR_H = 56;          // 角色绘制高度
     const BODY_OFF = 30;         // 身形中心相对脚底锚点的上移量（范围圈以此为中心）
     // 人物绘制锚点固定在整幅画面的垂直中心，不受下方状态栏影响
     const PLAYER_CY = H / 2;
@@ -217,16 +216,19 @@
     }
     function easeOutCubic(t) { const u = 1 - t; return 1 - u * u * u; }
     function easeInOut(t) { return t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2; }
-    function lerpColor(c1, c2, t) {
-        const r = Math.round(lerp(c1[0], c2[0], t)), g = Math.round(lerp(c1[1], c2[1], t)), b = Math.round(lerp(c1[2], c2[2], t));
-        return 'rgb(' + r + ',' + g + ',' + b + ')';
-    }
+    // 颜色串都是初始化时写死的常量，但 hexA / shade 每帧要解析几十遍；
+    // 按字符串把解析结果缓存下来（返回的数组只被读取，不会被改）
+    const HEX_RGB = Object.create(null);
     function hexRgb(h) {
+        let c = HEX_RGB[h];
+        if (c) return c;
         if (h[0] === '#') {
-            if (h.length === 7) return [parseInt(h.substr(1, 2), 16), parseInt(h.substr(3, 2), 16), parseInt(h.substr(5, 2), 16)];
-            if (h.length === 4) return [parseInt(h[1] + h[1], 16), parseInt(h[2] + h[2], 16), parseInt(h[3] + h[3], 16)];
+            if (h.length === 7) c = [parseInt(h.substr(1, 2), 16), parseInt(h.substr(3, 2), 16), parseInt(h.substr(5, 2), 16)];
+            else if (h.length === 4) c = [parseInt(h[1] + h[1], 16), parseInt(h[2] + h[2], 16), parseInt(h[3] + h[3], 16)];
         }
-        return [200, 200, 200];
+        if (!c) c = [200, 200, 200];
+        HEX_RGB[h] = c;
+        return c;
     }
     // #rrggbb + 透明度 → rgba()，供预警与高亮一类需要按帧改透明度的绘制使用
     function hexA(h, a) {
@@ -810,10 +812,6 @@
         return { x: SUN.x + p.orbA * Math.cos(a), y: SUN.y + p.orbB * Math.sin(a) };
     }
 
-    const WEAPON_NAMES = {
-        pistol: '脉冲手枪',
-        multi: '多连脉冲枪'
-    };
     const ITEM_NAMES = {
         heart: '生命回复', shoes: '移速增加', magnet: '拾取扩大', dodge: '闪避增长',
         rate: '射速增加', multi: '子弹分裂', scope: '射程增加', dmg: '攻击增加',
@@ -849,7 +847,6 @@
     const DIG_CD = 2.0;                     // 挖掘冷却（与尘土特效同长，尘土散尽即可再挖）
     const DIG_FX = 2.0;                     // 尘土特效时长
     const DIG_HIT_R = PICKUP_BASE;          // 命中判定：站进隐藏道具的初始拾取范围内才算挖到
-    const DIG_PEAK_R = PICKUP_BASE * 2;     // 挖掘命中半径仍以两个初始拾取范围为准
     const DIG_PIT_MAX = 48;                 // 地面上保留的坑洞数量上限（超出则丢掉最早的）
     const DIG_PIT_GROW = 3.2;               // 坑洞落地的放大速度（1/秒）
     const BEACON_BEAT_FAR = 2.4;            // 信号最弱时的间隔（秒）
@@ -857,7 +854,6 @@
     const BEACON_FLY = 0.72;                // 信标从 BOSS 处跳落到地面的时长（秒）
     const BEACON_HOP = 76;                  // 跳跃时的抛物线高度
     
-    const BEACON_HEAD_R = 40;               // 悬浮环带半径：越小越贴头
     const BEACON_DRIFT_R = 34;              // 自身漂移能到达的最大偏移
     // 漂移中心必须与方向判定的原点一致，否则连线方向会整体偏掉几十度。
     // 这里直接取人物身形中心（与 drawRangeRings 的圈心相同）。
@@ -1066,8 +1062,6 @@
     function hintConfirm() { return padConnected ? 'A' : 'J'; }
     function hintBack() { return padConnected ? 'B' : 'K'; }
     function hintEnterPlanet() { return padConnected ? '按 A 进入' : '按 J 进入'; }
-    function hintConfirmLong() { return padConnected ? 'A 确认 / 选择' : 'J 确认 / 选择'; }
-    function hintBackLong() { return padConnected ? 'B 翻滚 / 返回' : 'K 翻滚 / 返回'; }
     function hintMove() { return padConnected ? '左摇杆 / 十字键' : '方向键 / WASD'; }
     function hintLines() {
         return [
@@ -1076,7 +1070,6 @@
             hintBack() + '　翻滚 / 返回'
         ];
     }
-    function actHeld() { return held.KeyJ || held.KeyZ || pad.a; }
 
 // ==================== 画布适配 / 全屏 ====================
     const fullscreenApi = {
@@ -1848,8 +1841,10 @@
     // ==================== 飞船 ====================
     // 九大行星之间的巡航速度：刻意压得很慢，让航行成为一段需要耐心的等待
     const SHIP_SPEED = 105;
-    // 转向同样放慢，和速度一个量级，飞船因此显得笨重、有一段惯性
-    const SHIP_TURN = 3.2;
+    // 转向按帧率无关的指数平滑收敛到目标朝向（1 - e^(-T·dt)），
+    // 60 / 120 / 144 Hz 下转完同一角度花的时间完全一致，不会掉帧就变慢、帧率高就变快。
+    // T 决定转得多快：仍保留一点惯性，但不再像原来那样转到位后还要磨蹭将近一秒
+    const SHIP_TURN = 7;
     const ship = { x: 480, y: 300, ang: 0, t: 0, thrust: 0 };
     function drawShip(x, y, ang, t) {
         ctx.save();
@@ -2095,6 +2090,8 @@
     let scene = 'title';
     let sceneT = 0;
     let pendingPlanet = null;
+    // 进入提示圈：星球边缘之外再多这么一圈，飞到圈内才亮出「按 键 进入行星」
+    const ENTER_PAD = 52;
     function nearestPlanet() {
         let best = null, bd = 1e9;
         for (let i = 0; i < PLANETS.length; i++) {
@@ -2104,6 +2101,10 @@
             if (d < bd) { bd = d; best = p; }
         }
         return { planet: best, dist: bd };
+    }
+    // 某颗行星此刻是否已进入提示圈（判定与绘制共用，免得两处数字走偏）
+    function inEnterRange(p, d) {
+        return !!p && d < p.r + ENTER_PAD;
     }
     function sceneSpaceUpdate(dt) {
         sceneT += dt;
@@ -2115,18 +2116,18 @@
             ship.x += mv.x * SHIP_SPEED * dt;
             ship.y += mv.y * SHIP_SPEED * dt;
             const target = Math.atan2(mv.y, mv.x);
-            ship.ang += angDiff(target, ship.ang) * Math.min(1, dt * SHIP_TURN);
+            ship.ang += angDiff(target, ship.ang) * (1 - Math.exp(-SHIP_TURN * dt));
         }
         ship.x = clamp(ship.x, 46, W - 46);
         ship.y = clamp(ship.y, 120, H - 60);
         const np = nearestPlanet();
-        if (np.planet && np.dist < np.planet.r + 52) {
+        if (inEnterRange(np.planet, np.dist)) {
             if (actPress()) startLanding(np.planet.id);
         }
     }
     function sceneSpaceDraw() {
         const np = nearestPlanet();
-        const nearId = (np.planet && np.dist < np.planet.r + 52) ? np.planet.id : null;
+        const nearId = inEnterRange(np.planet, np.dist) ? np.planet.id : null;
         drawSolarSystem(sceneT, nearId, true);
         ctx.save();
         ctx.textAlign = 'center';
@@ -2145,9 +2146,12 @@
     function startGame() {
         scene = 'space';
         sceneT = 0;
-        const ep = planetPos(PLANET_BY_ID.earth);
+        const earth = PLANET_BY_ID.earth;
+        const ep = planetPos(earth);
+        // 贴着地球提示圈的内沿停：开场就正好亮出「进入地球」的按键提示，不必先飞一段
+        const d = earth.r + ENTER_PAD - 4;
         ship.x = ep.x;
-        ship.y = ep.y - 96;
+        ship.y = ep.y - d;
         ship.ang = -0.6;
         ship.t = 0;
         sfx('warp');
@@ -2170,11 +2174,14 @@
     let world = null;
     let viewZoom = 1;      // 升空拉远镜头时 < 1，用于扩大可见范围
 
-    // ---------- 升空镜头：从当前画面缓慢拉为远景 ----------
-    const LAUNCH_ZOOM_END = 1.6;     // 拉远结束时刻
-    const LAUNCH_ZOOM_MIN = 0.67;   // 远景缩放（升空与着陆共用同一个值，保证两端最远视角一致）
-                                 // 0.67 时半幅视野 = 640 / 0.67 ≈ 955，
-                                 // 刚好把以火箭为中心、横向半径 COL_RING.rX = 900 的石柱阵左右两端收进画面
+    // ---------- 升空镜头：从当前画面缓慢拉为远景，拉到位后停住一会儿再淡出 ----------
+    const LAUNCH_ZOOM_END = 1.45;    // 拉远结束时刻，之后一直保持远景，等火箭升出画面
+    const LAUNCH_ZOOM_MIN = 0.525;   // 远景缩放（升空与着陆共用同一个值，保证两端最远视角一致）
+                                     // 横向：640 / 0.525 ≈ 1219。除了椭圆半径 rX = 1120，
+                                     // 还要把石柱自身的半宽算进去（抱爪张到 COL_R*1.34 ≈ 62），
+                                     // 合计 1182 * 0.525 ≈ 621，左右两端各留 ~19px 不被切到
+                                     // 纵向：335 / 0.525 ≈ 638。1/5/7/11 点的柱脚在 0.87·rY ≈ 546，余量充足；
+                                     // 12 / 6 点的空位柱脚在 630，刚好压着上／下边缘
     const LAUNCH_TRAVEL = 760;      // 火箭上升距离（缩放前的屏幕像素）
     const LAUNCH_DEPART = 0.26;     // 出画后淡出所需的额外上升进度比例
     function launchZoom(t) {
@@ -2193,11 +2200,13 @@
         const d = launchRise(t) * LAUNCH_TRAVEL / top;
         return clamp((d - 1) / LAUNCH_DEPART, 0, 1);
     }
-    // ---------- 着陆镜头：由远及近推回常规视角，与升空拉远对称 ----------
+    // ---------- 着陆镜头：先在远景把整圈石柱阵看全，再由远及近推回常规视角 ----------
+    const LAND_ZOOM_HOLD = 0.9;  // 远景停留：开场就是俯视全貌，别一进来就推近
     const LAND_ZOOM_DUR = 2.0;   // 远镜头推近时长，比下降段更长，收尾更从容
     function landingZoom(t) {
-        if (t >= LAND_ZOOM_DUR) return 1;
-        const k = clamp(t / LAND_ZOOM_DUR, 0, 1);
+        if (t >= LAND_ZOOM_HOLD + LAND_ZOOM_DUR) return 1;
+        if (t <= LAND_ZOOM_HOLD) return LAUNCH_ZOOM_MIN;
+        const k = clamp((t - LAND_ZOOM_HOLD) / LAND_ZOOM_DUR, 0, 1);
         return lerp(LAUNCH_ZOOM_MIN, 1, easeInOut(k));
     }
     // 着陆入场黑场的浓度（1=全黑，0=完全显现）
@@ -2325,13 +2334,6 @@
             ctx.fillRect(cx - hw, cy - hUp, hw * 2, hUp + hDn);
         }
         groundProps.length = 0;
-        // 已经挖出的坑同样进这套队列：与树、纪念碑、火箭按 y 一起排序，前后遮挡才正确。
-        // 队列只装镜头附近的景物，所以这里先把视野外的坑剔掉，免得环绕坐标把它们画到对面去。
-        for (let i = 0; i < world.pits.length; i++) {
-            const pit = world.pits[i];
-            if (Math.abs(wrapDX(pit.x)) > hw + TILE || Math.abs(wrapDY(pit.y)) > hDn + TILE) continue;
-            groundProps.push({ wy: pit.y, draw: (function (o) { return function () { drawDigPit(o); }; })(pit) });
-        }
         let tx0 = Math.floor((cam.x - hw) / TILE) - 1;
         let tx1 = Math.ceil((cam.x + hw) / TILE) + 1;
         let ty0 = Math.floor((cam.y - hUp) / TILE) - 1;
@@ -2603,7 +2605,8 @@
             case 'crater': {
                 ctx.fillStyle = 'rgba(255,255,255,0.05)';
                 ctx.fillRect(sx, sy, T, T);
-                const n = 2;
+                // 与循环无关：颜色先算一次，省得每个陨石坑都重新解析一遍
+                const n = 2, rimCol = shade(p.ground, 0.22);
                 for (let i = 0; i < n; i++) {
                     const cx = sx + h * T + (hash2(tx * 3 + i, ty * 7) * (1 - h)) * T;
                     const cy = sy + hash2(tx * 11 + i, ty * 5) * T;
@@ -2612,7 +2615,7 @@
                     ctx.beginPath();
                     ctx.ellipse(cx + 3, cy + 3, r, r * 0.72, 0, 0, Math.PI * 2);
                     ctx.fill();
-                    ctx.fillStyle = shade(p.ground, 0.22);
+                    ctx.fillStyle = rimCol;
                     ctx.beginPath();
                     ctx.ellipse(cx, cy, r, r * 0.72, 0, 0, Math.PI * 2);
                     ctx.fill();
@@ -2676,6 +2679,8 @@
             case 'rock': {
                 ctx.fillStyle = 'rgba(0,0,0,0.10)';
                 ctx.fillRect(sx, sy, T, T);
+                // 与循环无关：石面颜色只跟 h 有关，先算一次
+                const rockCol = h > 0.5 ? shade(p.ground, 0.18) : shade(p.ground2, -0.08);
                 for (let i = 0; i < 3; i++) {
                     const rx = sx + hash2(tx * 3 + i * 5, ty * 7) * T;
                     const ry = sy + hash2(tx * 11 + i * 3, ty * 5) * T;
@@ -2684,7 +2689,7 @@
                     ctx.beginPath();
                     ctx.ellipse(rx + 4, ry + 4, rr, rr * 0.6, 0, 0, Math.PI * 2);
                     ctx.fill();
-                    ctx.fillStyle = h > 0.5 ? shade(p.ground, 0.18) : shade(p.ground2, -0.08);
+                    ctx.fillStyle = rockCol;
                     ctx.beginPath();
                     ctx.moveTo(rx - rr, ry + rr * 0.5);
                     ctx.lineTo(rx - rr * 0.3, ry - rr * 0.7);
@@ -3574,20 +3579,29 @@ if (view.face === 'front') {
     }
 
     // ==================== 道具图标 ====================
+    // desc：道具效果说明，战备配置里光标停在某件道具上时用光标那行的格式显示出来
     const ITEMS = [
-        { id: 'heart', name: ITEM_NAMES.heart, color: '#ff6b8a' },
-        { id: 'shoes', name: ITEM_NAMES.shoes, color: '#5ad2a0' },
-        { id: 'magnet', name: ITEM_NAMES.magnet, color: '#7aa8e8' },
-        { id: 'dodge', name: ITEM_NAMES.dodge, color: '#7ce0ff' },
-        { id: 'rate', name: ITEM_NAMES.rate, color: '#ffc857' },
-        { id: 'multi', name: ITEM_NAMES.multi, color: '#c58cff' },
-        { id: 'dmg', name: ITEM_NAMES.dmg, color: '#ff5c5c' },
-        { id: 'scope', name: ITEM_NAMES.scope, color: '#9fe0a8' },
-        { id: 'rollcd', name: ITEM_NAMES.rollcd, color: '#dfe8f5' },
-        { id: 'boom', name: ITEM_NAMES.boom, color: '#ff9f43' }
-    ].concat(RELICS.map((r) => ({ id: r.item, name: r.name, color: r.col })));
+        { id: 'heart', name: ITEM_NAMES.heart, color: '#ff6b8a', desc: '立刻回复 1 点生命；生命已满则改为 +50 分数' },
+        { id: 'shoes', name: ITEM_NAMES.shoes, color: '#5ad2a0', desc: '移动速度 +15%' },
+        { id: 'magnet', name: ITEM_NAMES.magnet, color: '#7aa8e8', desc: '拾取范围 +25' },
+        { id: 'dodge', name: ITEM_NAMES.dodge, color: '#7ce0ff', desc: '闪避距离 +20' },
+        { id: 'rate', name: ITEM_NAMES.rate, color: '#ffc857', desc: '射击间隔 -10%，最低 70 ms' },
+        { id: 'multi', name: ITEM_NAMES.multi, color: '#c58cff', desc: '每次射击多打出 1 发子弹' },
+        { id: 'dmg', name: ITEM_NAMES.dmg, color: '#ff5c5c', desc: '攻击力 +1' },
+        { id: 'scope', name: ITEM_NAMES.scope, color: '#9fe0a8', desc: '射击距离 +30' },
+        { id: 'rollcd', name: ITEM_NAMES.rollcd, color: '#dfe8f5', desc: '闪避冷却 -15%，最低为原值的 15%' },
+        { id: 'boom', name: ITEM_NAMES.boom, color: '#ff9f43', desc: '子弹命中时爆炸：首件解锁爆炸子弹，之后每件使爆炸范围 +20' }
+    ].concat(RELICS.map((r) => ({
+        id: r.item, name: r.name, color: r.col,
+        desc: r.desc + '；冷却 ' + r.cd + ' 秒，重复拾取每次范围 +' + r.stepR
+    })));
     const ITEM_BY_ID = {};
     for (const it of ITEMS) ITEM_BY_ID[it.id] = it;
+    // 取道具的效果说明；不是道具 / 没有写说明时返回空串
+    function itemEffect(id) {
+        const it = ITEM_BY_ID[id];
+        return (it && it.desc) ? it.desc : '';
+    }
     // 各图标的自然绘制范围宽窄不一，这里统一缩放，保证视觉尺寸一致
     const ICON_SCALE = {
         heart: 0.96, shoes: 0.97, magnet: 1.10, dodge: 0.77,
@@ -4488,10 +4502,10 @@ if (view.face === 'front') {
         drawInvWiring();
         const a = INV_AREAS[inv.ai];
         const cur = slotAt(a.id, inv.c, inv.r);
+        const eff = cur ? itemEffect(cur) : '';
         setFont(16, 'bold');
         ctx.fillStyle = '#ffffff';
-        ctx.fillText('光标：' + (cur && ITEM_BY_ID[cur] ? ITEM_NAMES[cur] : '（空）')
-            + (a.pair ? '　→ 可移动到' + INV_AREAS[areaIndex(a.pair)].title : '　（固定栏 · 不可移动）'), W / 2, BOX_Y + 74);
+        ctx.fillText(eff ? '效果：' + eff : '光标：' + (cur && ITEM_BY_ID[cur] ? ITEM_NAMES[cur] : '（空）'), W / 2, BOX_Y + 74);
         setFont(13, 'normal');
         ctx.fillStyle = 'rgba(175,198,230,0.88)';
         ctx.fillText(hintMove() + ' 移动光标　·　' + hintConfirm() + ' 移动道具　·　' + hintBack() + ' 关闭', W / 2, BOX_Y + 100);
@@ -4748,7 +4762,6 @@ if (view.face === 'front') {
     // ==================== 道具三选一 ====================
     // 不操作时三个道具静止（一个在头上，两个在身侧），
     // 按 左/右 方向轮换顺序，按 J 确认头顶那个，选完清空。
-    function pkgItems() { return world.pkg; }
     // 开启一轮选择（重新计时）
     function openPkg(items) {
         world.pkg = items;
@@ -5227,7 +5240,7 @@ if (view.face === 'front') {
         const abil = world.planet.ability;
         // 普通弹幕
         if (b.cd <= 0) {
-            b.cd = 1.5 - world.tier * 0.12;
+            b.cd = 2.2 - world.tier * 0.14;
             const base = Math.atan2(dy, dx);
             const n = 3 + world.tier;
             for (let i = 0; i < n; i++) {
@@ -5287,7 +5300,7 @@ if (view.face === 'front') {
         ctx.ellipse(b.r * 0.56, -b.r * 0.22, 2.4, 5, 0, 0, Math.PI * 2);
         ctx.fill();
         // 尖刺
-        ctx.fillStyle = flash ? '#ffffff' : shadeHex(c.dark, -0.2);
+        ctx.fillStyle = flash ? '#ffffff' : shade(c.dark, -0.2);
         for (let i = 0; i < 6; i++) {
             const a = -Math.PI * 0.85 + i * (Math.PI * 1.7 / 5);
             ctx.save();
@@ -5314,7 +5327,6 @@ if (view.face === 'front') {
         ctx.fill();
         ctx.restore();
     }
-    function shadeHex(h, amt) { return shade(h, amt); }
 
     // ==================== 玩家动作 ====================
     function applyItem(id) {
@@ -5967,45 +5979,77 @@ function drawDigDust() {
     }
 }
 // 挖掘留下的坑：固定留在原地，落地时由小放大，之后不再变化。
-// 由 drawGround 塞进 groundProps 队列，与其他地面景物按 y 一起排序
-function drawDigPit(pit) {
+// 颜色全部由当前星球的地面色推出（col 由 drawDigPits 每帧算一次传进来），
+// 所以火星上挖出来的是火星的土色，不会凭空多出一个泥巴坑。
+// 深度靠「坑底整体下移」：底椭圆往下挪之后，上缘留出一条厚厚的受光坑壁、下缘几乎看不到壁。
+function drawDigPit(pit, col) {
     const x = scrX(pit.x), y = scrY(pit.y);
     const k = easeOutCubic(pit.t);                 // 落地瞬间张开
-    const deep = 0.62 + 0.38 * k;                 // 越新的坑颜色越沉
-    const rx = 30 * k, ry = 15 * k;
+    const deep = 0.55 + 0.45 * k;                  // 越新的坑土色越沉
+    const rx = 34.5 * k, ry = 17.25 * k;           // 坑口
     ctx.save();
-    // 坑底：中心最深、向外化开的暗色椭圆
-    const g = ctx.createRadialGradient(x, y, ry * 0.12, x, y, rx);
-    g.addColorStop(0, 'rgba(26,18,11,' + (0.80 * deep) + ')');
-    g.addColorStop(0.55, 'rgba(62,47,33,' + (0.55 * deep) + ')');
-    g.addColorStop(1, 'rgba(78,64,48,0)');
-    ctx.fillStyle = g;
+    // 坑沿翻出来的一圈松土：比地面略深一点，薄薄地铺在坑口周围
+    ctx.globalAlpha = 0.26 * deep;
+    ctx.fillStyle = col.lip;
+    ctx.beginPath(); ctx.ellipse(x, y + ry * 0.1, rx * 1.18, ry * 1.2, 0, 0, TAU); ctx.fill();
+    // 坑壁：上缘受光 → 下缘背光，一道竖向渐变交代整面壁
+    ctx.globalAlpha = 0.82 * deep;
+    const wall = ctx.createLinearGradient(x, y - ry, x, y + ry);
+    wall.addColorStop(0, col.wallHi);
+    wall.addColorStop(0.45, col.wallMid);
+    wall.addColorStop(1, col.wallLo);
+    ctx.fillStyle = wall;
+    ctx.beginPath(); ctx.ellipse(x, y, rx, ry, 0, 0, TAU); ctx.fill();
+    // 坑底：同色系压暗，不压成纯黑，免得看着像个洞
+    const fy = y + ry * 0.26, frx = rx * 0.88, fry = ry * 0.62;
+    ctx.globalAlpha = 0.6 * deep;
+    ctx.fillStyle = col.floor;
+    ctx.beginPath(); ctx.ellipse(x, fy, frx, fry, 0, 0, TAU); ctx.fill();
+    // 坑口外缘：上缘一线受光的土棱，细一点即可
+    ctx.globalAlpha = 0.42 * deep;
+    ctx.strokeStyle = col.rim;
+    ctx.lineWidth = 1.5 * k;
     ctx.beginPath();
-    ctx.ellipse(x, y, rx, ry, 0, 0, Math.PI * 2);
-    ctx.fill();
-    // 坑沿：上缘受光、下缘背光，靠明暗做出凹陷的立体感
-    ctx.lineWidth = 2.6 * k;
-    ctx.strokeStyle = 'rgba(208,190,154,' + (0.52 * deep) + ')';
-    ctx.beginPath();
-    ctx.ellipse(x, y - 1.4, rx * 0.95, ry * 0.92, 0, Math.PI * 1.02, Math.PI * 1.98);
+    ctx.ellipse(x, y - 0.8, rx, ry, 0, Math.PI * 1.1, Math.PI * 1.9);
     ctx.stroke();
-    ctx.strokeStyle = 'rgba(34,25,16,' + (0.6 * deep) + ')';
-    ctx.beginPath();
-    ctx.ellipse(x, y + 1.6, rx * 0.9, ry * 0.84, 0, Math.PI * 0.06, Math.PI * 0.94);
-    ctx.stroke();
-    // 坑底翻出来的几块碎石
-    ctx.fillStyle = 'rgba(156,138,108,' + (0.42 * deep) + ')';
-    for (let j = 0; j < 5; j++) {
-        const a = pit.seed + j * 1.57;
-        const rr = 0.3 + 0.62 * ((j * 0.29 + pit.seed * 0.17) % 1);
+    // 几粒崩在坑口的碎石
+    ctx.globalAlpha = 0.34 * deep;
+    ctx.fillStyle = col.lip;
+    for (let j = 0; j < 3; j++) {
+        const a = pit.seed + j * 2.1;
+        const rr = 1.02 + 0.2 * ((j * 0.29 + pit.seed * 0.17) % 1);
         const px = x + Math.cos(a) * rx * rr;
         const py = y + Math.sin(a) * ry * rr;
-        const s = 2.4 + 2.6 * ((j * 0.41 + pit.seed * 0.11) % 1);
+        const s = (2 + 2.2 * ((j * 0.41 + pit.seed * 0.11) % 1)) * k;
         ctx.beginPath();
-        ctx.ellipse(px, py, s, s * 0.66, a, 0, Math.PI * 2);
+        ctx.ellipse(px, py, s, s * 0.62, a, 0, Math.PI * 2);
         ctx.fill();
     }
     ctx.restore();
+}
+// 坑单独一层：画在地面之上、其他景物（树 / 纪念碑 / 火箭 / 人物 / 敌人）之下。
+// 不进 groundProps 的按 y 排序队列，站进坑里的人、压在坑前面的树都不会被坑盖住。
+function drawDigPits() {
+    if (!world.pits.length) return;
+    const vz = viewZoom;
+    // 与 drawGround 同一套可见范围，顺带把环绕坐标挡在镜头外
+    const hw = (W / 2) / vz + TILE;
+    const hDn = (H - PLAY_H / 2) / vz + TILE;
+    // 六个土色每帧只算一次，之后各坑共用
+    const g0 = world.planet.ground, g2 = world.planet.ground2;
+    const col = {
+        lip: shade(g2, -0.06),
+        wallHi: shade(g0, 0.13),
+        wallMid: shade(g0, -0.13),
+        wallLo: shade(g0, -0.33),
+        floor: shade(g0, -0.66),
+        rim: shade(g0, 0.28)
+    };
+    for (let i = 0; i < world.pits.length; i++) {
+        const pit = world.pits[i];
+        if (Math.abs(wrapDX(pit.x)) > hw || Math.abs(wrapDY(pit.y)) > hDn) continue;
+        drawDigPit(pit, col);
+    }
 }
 // 浓烟·身前层：比身后的尘土更厚更暗的一层，翻腾着盖过主角，再一点点散淡
 // 与 drawDigDust 共用 world.dust 数据，只负责表现；单独一层是为了压住角色的下半身
@@ -7821,11 +7865,15 @@ function bossLevelNeed() { return BOSS_LEVEL_BASE + world.bossKills; }
     // 十二根粗罗马石柱按钟表位围成一圈，3 / 6 / 9 / 12 点四个方位留空当作出入口；
     // 其余八个方位自 7 点钟（水星）起顺时针排给另外八颗行星。
     const COLONNADE_HOURS = [7, 8, 10, 11, 1, 2, 4, 5];
+    // 上下左右四个空位：石柱本身和其它八根完全一样，只是没有对应的行星，陈列文字一律写 XX
+    const COL_SEAT_ID = 'seat';
+    const COL_SEAT = { id: COL_SEAT_ID, name: 'XX', colA: '#a9b8cf' };
     const COL_GEM_BEAM = 4;        // 集到这么多颗宝石就开始往外放光柱
     const COL_GEM_PORTAL = 8;      // 八颗全齐，圈心开启通往月球的传送门
-    // 石柱围成的扁椭圆：长径 : 短径 = 16 : 10，整圈以火箭（飞船落点）为中心
-    // 半径按「降落 / 起飞拉远到最小视角时，左右两端刚好进画」来定，见 LAUNCH_ZOOM_MIN
-    const COL_RING = { rX: 900, rY: 562.5 };   // 900 : 562.5 = 16 : 10
+    // 石柱围成的扁椭圆：长径 : 短径 ≈ 1120 : 630，整圈以火箭（飞船落点）为中心
+    // 横向按「降落 / 起飞拉远到最小视角时，左右两端刚好进画」来定，见 LAUNCH_ZOOM_MIN
+    // 纵向受取景高度卡死：1/5/7/11 点那四根柱子的柱脚必须留在画面内，短径再大就看不见了
+    const COL_RING = { rX: 1120, rY: 630 };
     // 已挖到的行星宝石数量（地球自己不算；每颗宝石只算一次）
     function gemTotal() {
         let n = 0;
@@ -7853,7 +7901,7 @@ function bossLevelNeed() { return BOSS_LEVEL_BASE + world.bossKills; }
             const idx = COLONNADE_HOURS.indexOf(h);
             world.colonnade.push({
                 hour: h, x: x, y: y, seed: h * 1.37,
-                id: idx >= 0 ? targets[idx].id : null
+                id: idx >= 0 ? targets[idx].id : COL_SEAT_ID
             });
         }
         world.portal = gemTotal() >= COL_GEM_PORTAL ? { x: world.ring.x, y: world.ring.y } : null;
@@ -7888,53 +7936,106 @@ function bossLevelNeed() { return BOSS_LEVEL_BASE + world.bossKills; }
     // ---------------- 十二柱星环 ----------------
     // 单根石柱：柱脚 → 圆柱（柱体本身就是牢笼）→ 顶端外张的抱爪 → 悬空的宝石
     // 每一层都用「上下椭圆口 + 柱壁」的画法，堆出当前俯视角度下的体积感
-    const COL_R = 40;           // 柱身半径（加粗）
+    const COL_R = 46;           // 柱身半径（加粗）
     const COL_BODY_T = 126;     // 柱身顶端相对柱脚的高度
-    const COL_BODY_B = 26;      // 柱身底端
-    const COL_CLAW_T = 182;     // 抱爪顶端
-    const COL_GEM_Y = 226;      // 宝石悬空的高度
-    // 一块有厚度的石层：下缘暗、中间柱壁、上缘亮椭圆口
-    function colSlab(x, yTop, h, r, cTop, cBody, cBot) {
+    const COL_BODY_B = 34;      // 柱身底端：正好落在上级台阶的踏面中心，柱脚才不会插进台阶里
+    const COL_CLAW_T = 198;     // 抱爪顶端
+    const COL_GEM_Y = 232;      // 宝石悬空的高度
+    // 一块有厚度的石层：顶面受光、竖面自带上亮下暗的竖向渐变、底沿收一道暗边
+    // 圆柱的立体感全靠竖面这道明暗；竖面若是一个平色，无论柱身还是台阶都会看着像贴纸。
+    // bot：底沿椭圆的高度系数。柱身 / 柱头用默认 0.3；
+    // 柱脚两级台阶要压到 0.10 —— 默认值下上级台阶的暗底沿会整片盖住下级的亮踏面，柱脚会看成上下两团死黑
+    function colSlab(x, yTop, h, r, cTop, cBody, cBot, bot) {
         const capH = r * 0.3;
-        ctx.fillStyle = cBody;
+        const wall = ctx.createLinearGradient(x, yTop, x, yTop + h);
+        wall.addColorStop(0, cTop);        // 贴着顶面最亮
+        wall.addColorStop(0.42, cBody);
+        wall.addColorStop(1, cBot);        // 落到下缘最暗
+        ctx.fillStyle = wall;
         roundRectPath(x - r, yTop, r * 2, h, 3);
         ctx.fill();
         ctx.fillStyle = cBot;
-        ctx.beginPath(); ctx.ellipse(x, yTop + h, r, capH, 0, 0, TAU); ctx.fill();
+        ctx.beginPath(); ctx.ellipse(x, yTop + h, r, bot === undefined ? capH : r * bot, 0, 0, TAU); ctx.fill();
         ctx.fillStyle = cTop;
         ctx.beginPath(); ctx.ellipse(x, yTop, r, capH, 0, 0, TAU); ctx.fill();
     }
-    // 一根石爪：先画一条偏暗的粗底，再压一条亮面，靠两条线的错位挤出体积
-    function colClaw(x0, y0, x1, y1, cx, cy, w) {
-        ctx.lineCap = 'round';
-        ctx.strokeStyle = '#3f4653';
-        ctx.lineWidth = w + 3.5;
+    // 笼口轮廓：上下两边都按柱身的椭圆口画，一律向前（屏幕下方）鼓出，
+    // 这样洞口和柱身、柱头、柱脚用的是同一套圆弧，读起来是同一根柱子上的东西。
+    // 注意 canvas 的角度是顺屏幕方向量的：0→PI 才是「经正下方」的下半圈，PI→0 才是往回绕的下半圈
+    function colCagePath(x, yTop, h, r) {
+        const capH = r * 0.3;
         ctx.beginPath();
-        ctx.moveTo(x0 + 1.6, y0 + 2.2);
-        ctx.quadraticCurveTo(cx + 1.6, cy + 2.2, x1 + 1.6, y1 + 2.2);
-        ctx.stroke();
+        ctx.moveTo(x + r, yTop);
+        ctx.ellipse(x, yTop, r, capH, 0, 0, Math.PI);            // 上缘：右 -> 左，经正下方鼓出
+        ctx.lineTo(x - r, yTop + h);
+        ctx.ellipse(x, yTop + h, r, capH, 0, Math.PI, 0, true);   // 下缘：左 -> 右，同样经正下方鼓出
+        ctx.closePath();
+    }
+    // 一根石爪：整根沿同一条中线一次成形 —— 根部保持 w 的粗细，向上用 smoothstep 连续收到尖，
+    // 两侧按法线等距外扩再首尾闭合，所以没有分段描边留下的接缝和毛刺。
+    // 亮面外面再压一层加宽并右下错位的暗底，靠两条轮廓的错位挤出体积。
+    function colClaw(x0, y0, x1, y1, cx, cy, w) {
+        const TIP_W = w * 0.10;     // 爪尖留一点厚度，收成尖而不是针
+        const SEG = 18;              // 取样段数，够密看不出折线
+        function qp(t) {
+            const u = 1 - t;
+            return [u * u * x0 + 2 * u * t * cx + t * t * x1, u * u * y0 + 2 * u * t * cy + t * t * y1];
+        }
+        function qtan(t) {
+            const u = 1 - t;
+            const dx = 2 * u * (cx - x0) + 2 * t * (x1 - cx);
+            const dy = 2 * u * (cy - y0) + 2 * t * (y1 - cy);
+            const l = Math.hypot(dx, dy) || 1;
+            return [dx / l, dy / l];
+        }
+        // 下微粗上细：根部 35% 几乎保持整根粗细，过半才开始收，最后收到爪尖
+        function halfW(t, grow) {
+            const u = clamp((t - 0.35) / 0.65, 0, 1);
+            const e = u * u * (3 - 2 * u);
+            return (w + (TIP_W - w) * e) / 2 + grow;
+        }
+        // 一侧走正法线、另一侧走负法线，首尾一接就是闭合轮廓
+        function outline(ox, oy, grow) {
+            let p = qp(0), d = qtan(0), h = halfW(0, grow);
+            ctx.beginPath();
+            ctx.moveTo(p[0] + ox - d[1] * h, p[1] + oy + d[0] * h);
+            for (let i = 1; i <= SEG; i++) {
+                p = qp(i / SEG); d = qtan(i / SEG); h = halfW(i / SEG, grow);
+                ctx.lineTo(p[0] + ox - d[1] * h, p[1] + oy + d[0] * h);
+            }
+            for (let i = SEG; i >= 0; i--) {
+                p = qp(i / SEG); d = qtan(i / SEG); h = halfW(i / SEG, grow);
+                ctx.lineTo(p[0] + ox + d[1] * h, p[1] + oy - d[0] * h);
+            }
+            ctx.closePath();
+        }
+        // 暗底：加宽一圈并右下错位
+        outline(1.6, 2.2, 1.75);
+        ctx.fillStyle = '#3f4653';
+        ctx.fill();
+        // 亮面
         const g = ctx.createLinearGradient(x0, y0, x1, y1);
         g.addColorStop(0, '#79808f');
         g.addColorStop(0.5, '#c2c9d6');
         g.addColorStop(1, '#eef2f8');
-        ctx.strokeStyle = g;
-        ctx.lineWidth = w;
-        ctx.beginPath();
-        ctx.moveTo(x0, y0);
-        ctx.quadraticCurveTo(cx, cy, x1, y1);
-        ctx.stroke();
-        // 爪尖的小高光
+        outline(0, 0, 0);
+        ctx.fillStyle = g;
+        ctx.fill();
+        // 爪尖的小高光，压在还够宽的收拢段上，免得比爪身还粗、变成尖端一个白点
+        const qh = qp(0.7);
         ctx.fillStyle = 'rgba(255,255,255,0.8)';
-        ctx.beginPath(); ctx.arc(x1, y1, w * 0.42, 0, TAU); ctx.fill();
+        ctx.beginPath(); ctx.arc(qh[0], qh[1], w * 0.24, 0, TAU); ctx.fill();
     }
     function drawRomanColumn(col, alpha) {
         const x = scrX(col.x), y = scrY(col.y);
-        const m = 360 / viewZoom;
+        const m = 420 / viewZoom;
         if (x < -m || x > W + m || y < -m || y > PLAY_H + m) return;
         const t = world.t;
-        const pl = col.id ? PLANET_BY_ID[col.id] : null;
-        const rec = col.id ? save.planets[col.id] : null;
-        const hasGem = !!(pl && save.gems[pl.id] > 0);
+        // 空位不是行星，单独走 COL_SEAT，样式与其它石柱一致，只是没有宝石与战绩
+        const seat = col.id === COL_SEAT_ID;
+        const pl = col.id ? (seat ? COL_SEAT : PLANET_BY_ID[col.id]) : null;
+        const rec = (col.id && !seat) ? save.planets[col.id] : null;
+        const hasGem = !!(pl && !seat && save.gems[pl.id] > 0);
         const cleared = !!(rec && rec.clears > 0);
         const R = COL_R;
         const bodyT = y - COL_BODY_T, bodyB = y - COL_BODY_B;
@@ -7949,11 +8050,11 @@ function bossLevelNeed() { return BOSS_LEVEL_BASE + world.bossKills; }
         ctx.ellipse(x + 5, y + 6, R + 15, 18, 0, 0, TAU);
         ctx.fill();
         ctx.globalAlpha = alpha;
-        // 柱脚：两级圆台，每级都是带上下椭圆口的厚石层
-        colSlab(x, y - 18, 20, R + 14, '#8b93a2', '#6b7280', '#4e5563');
-        colSlab(x, y - 34, 18, R + 8, '#99a1b0', '#79818f', '#5a616f');
-        // 圆柱本体
-        colSlab(x, bodyT, bodyH, R, '#d2d8e2', '#9ba3b2', '#5f6674');
+        // 柱脚：两级圆台，底沿压扁，好让每一级的受光踏面都露出来
+        colSlab(x, y - 18, 20, R + 14, '#8b93a2', '#6b7280', '#4e5563', 0.10);
+        colSlab(x, y - 34, 18, R + 8, '#99a1b0', '#79818f', '#5a616f', 0.10);
+        // 圆柱本体：底沿同样压成细边，只留一道与台阶之间的接触暗缝
+        colSlab(x, bodyT, bodyH, R, '#d2d8e2', '#9ba3b2', '#5f6674', 0.12);
         // 柱壁的横向明暗：左暗 → 亮面偏左 → 右暗
         const cg = ctx.createLinearGradient(x - R, 0, x + R, 0);
         cg.addColorStop(0, 'rgba(38,44,56,0.45)');
@@ -7978,58 +8079,55 @@ function bossLevelNeed() { return BOSS_LEVEL_BASE + world.bossKills; }
         if (pl) {
             const inR = R - 8, inH = bodyH - 18;
             const it = bodyT + 9;
+            const inCap = inR * 0.3;            // 洞口上下弧的鼓出高度，与柱身同一比例
             const hole = ctx.createLinearGradient(x, it, x, it + inH);
             hole.addColorStop(0, 'rgba(6,8,12,0.97)');
             hole.addColorStop(0.5, 'rgba(18,22,31,0.97)');
             hole.addColorStop(1, 'rgba(4,5,8,0.97)');
             ctx.fillStyle = hole;
-            roundRectPath(x - inR, it, inR * 2, inH, 3);
+            colCagePath(x, it, inH, inR);
             ctx.fill();
             // 洞口内圈的一层厚边
             ctx.strokeStyle = 'rgba(24,29,40,0.95)';
             ctx.lineWidth = 5;
-            roundRectPath(x - inR, it, inR * 2, inH, 3);
+            colCagePath(x, it, inH, inR);
             ctx.stroke();
-            if (cleared) drawBossCage(pl, x, it + inH * 0.52, inR, t + col.seed);
-            else {
-                ctx.textAlign = 'center';
-                ctx.textBaseline = 'middle';
-                setFont(14, 'bold');
-                ctx.fillStyle = 'rgba(198,212,232,0.5)';
-                ctx.fillText('未征服', x, it + inH * 0.45);
-                setFont(12, 'normal');
-                ctx.fillStyle = 'rgba(198,212,232,0.36)';
-                ctx.fillText(pl.name, x, it + inH * 0.68);
-            }
-            // 铁栏压在 BOSS 之上
+            // 笼子里不写字：已通关的关着 BOSS，没通关的就空着，靠柱脚铭牌认人
+            if (cleared) drawBossCage(pl, x, it + inH * 0.52, inR);
+            // 铁栏压在 BOSS 之上：竖栏按笼口两条弧各自起止，横栏直接描那两段弧
             ctx.strokeStyle = 'rgba(160,172,192,0.88)';
             ctx.lineWidth = 2.8;
             for (let i = -2; i <= 2; i++) {
                 const bx = x + i * inR * 0.5;
+                // 该竖栏位置上笼口上下弧的鼓出量
+                const k = inCap * Math.sqrt(Math.max(0, 1 - (i * 0.5) * (i * 0.5)));
                 ctx.beginPath();
-                ctx.moveTo(bx, it + 2);
-                ctx.lineTo(bx, it + inH - 2);
+                ctx.moveTo(bx, it + k);
+                ctx.lineTo(bx, it + inH + k);
                 ctx.stroke();
             }
             ctx.strokeStyle = 'rgba(210,222,240,0.75)';
             ctx.lineWidth = 3.2;
             ctx.beginPath();
-            ctx.moveTo(x - inR, it + 2); ctx.lineTo(x + inR, it + 2);
-            ctx.moveTo(x - inR, it + inH - 2); ctx.lineTo(x + inR, it + inH - 2);
+            ctx.ellipse(x, it, inR, inCap, 0, 0, Math.PI);
+            ctx.moveTo(x - inR, it + inH);
+            ctx.ellipse(x, it + inH, inR, inCap, 0, Math.PI, 0, true);
             ctx.stroke();
-        } else {
-            // 空位：同一种石材，上下各箍一道带体积的环，读起来是「没有陈列」
-            colSlab(x, bodyT + capH + 10, 11, R + 3, '#8e96a5', '#6d7482', '#4a515e');
-            colSlab(x, bodyB - capH - 22, 11, R + 3, '#8e96a5', '#6d7482', '#4a515e');
         }
         // 柱头托盘：同样是一块带上下椭圆口的厚石层
-        colSlab(x, bodyT - 14, 14, R + 4, '#b3bac7', '#818998', '#5b6270');
+        const capR = R + 4;
+        colSlab(x, bodyT - 14, 14, capR, '#b3bac7', '#818998', '#5b6270');
+        // 托盘那块顶椭圆的上缘，就是柱子的「顶平面」，中间两根抱爪从这里起画
+        const capPlaneY = bodyT - 14 - capR * 0.3;
         // 顶端抱爪：四根石爪朝外上方张开，爪尖一律离开柱身
+        // 外侧两根从柱肩起画；中间两根只画上半截，根部收到托盘顶平面上缘，根与尖都比外侧张开得更开
         const clawT = y - COL_CLAW_T;
-        colClaw(x - R * 0.72, bodyT - 8, x - R * 1.30, clawT + 8, x - R * 1.16, (bodyT + clawT) / 2, 7.5);
-        colClaw(x - R * 0.30, bodyT - 10, x - R * 0.56, clawT - 6, x - R * 0.52, (bodyT + clawT) / 2, 6.2);
-        colClaw(x + R * 0.30, bodyT - 10, x + R * 0.56, clawT - 6, x + R * 0.52, (bodyT + clawT) / 2, 6.2);
-        colClaw(x + R * 0.72, bodyT - 8, x + R * 1.30, clawT + 8, x + R * 1.16, (bodyT + clawT) / 2, 7.5);
+        const midY0 = capPlaneY, midY1 = clawT - 6, midCy = (midY0 + midY1) / 2;
+        const midRootX = R * 0.35, midTipX = R * 0.63;
+        colClaw(x - R * 0.72, bodyT - 8, x - R * 1.34, clawT + 8, x - R * 1.46, (bodyT + clawT) / 2, 7.5);
+        colClaw(x - midRootX, midY0, x - midTipX, midY1, x - R * 0.80, midCy, 6.2);
+        colClaw(x + midRootX, midY0, x + midTipX, midY1, x + R * 0.80, midCy, 6.2);
+        colClaw(x + R * 0.72, bodyT - 8, x + R * 1.34, clawT + 8, x + R * 1.46, (bodyT + clawT) / 2, 7.5);
         // 宝石：居中悬在爪心，比原来更大，光效更炫
         const gemY = y - COL_GEM_Y + Math.sin(t * 1.9 + col.seed * 2) * 4;
         if (pl && hasGem) {
@@ -8104,63 +8202,45 @@ function bossLevelNeed() { return BOSS_LEVEL_BASE + world.bossKills; }
         // 柱脚铭牌
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        if (pl) {
-            roundRectPath(x - 36, y + 14, 72, 20, 5);
-            ctx.fillStyle = 'rgba(14,20,32,0.82)';
-            ctx.fill();
-            ctx.strokeStyle = hexA(pl.colA, cleared ? 0.55 : 0.28);
-            ctx.lineWidth = 1.2;
-            roundRectPath(x - 36, y + 14, 72, 20, 5);
-            ctx.stroke();
-            setFont(13, 'bold');
-            ctx.fillStyle = cleared ? '#bfe98a' : 'rgba(220,233,250,0.9)';
-            ctx.fillText(pl.name, x, y + 24);
-        } else {
-            setFont(12, 'bold');
-            ctx.fillStyle = 'rgba(158,176,206,0.45)';
-            ctx.fillText('通道', x, y + 24);
-        }
+        roundRectPath(x - 36, y + 14, 72, 20, 5);
+        ctx.fillStyle = 'rgba(14,20,32,0.82)';
+        ctx.fill();
+        ctx.strokeStyle = hexA(pl.colA, cleared ? 0.55 : 0.28);
+        ctx.lineWidth = 1.2;
+        roundRectPath(x - 36, y + 14, 72, 20, 5);
+        ctx.stroke();
+        setFont(13, 'bold');
+        ctx.fillStyle = cleared ? '#bfe98a' : 'rgba(220,233,250,0.9)';
+        ctx.fillText(pl.name, x, y + 24);
         ctx.restore();
     }
-    // 关在笼子里的 BOSS：整只体型按笼口的 1.3 倍画，肩膀与头冠自然溢到栏外
-    function drawBossCage(pl, x, y, inR, t) {
+    // 关在笼子里的 BOSS：画的是战场上那只的静态版——两层主体 + 甲壳纹路 + 眼睛 + 头冠尖刺，
+    // 元素与 drawBoss 一致，只是不随时间动；不再额外补一块肩背，免得笼口下方多出半圆形色块
+    function drawBossCage(pl, x, y, inR) {
         const c = pl.bossCol;
         const S = inR / 30 * 1.3;
         ctx.save();
         ctx.translate(x, y);
         ctx.scale(S, S);
-        // 溢到笼外的肩背
-        ctx.fillStyle = c.dark;
-        ctx.beginPath();
-        ctx.moveTo(-34, 26);
-        ctx.quadraticCurveTo(-30, 2, -12, -2);
-        ctx.lineTo(12, -2);
-        ctx.quadraticCurveTo(30, 2, 34, 26);
-        ctx.closePath();
-        ctx.fill();
-        // 头
-        ctx.save();
-        ctx.rotate(Math.sin(t * 1.3) * 0.05);
+        // 主体
         ctx.fillStyle = c.dark;
         ctx.beginPath(); ctx.ellipse(0, -6, 25, 23, 0, 0, TAU); ctx.fill();
         ctx.fillStyle = c.body;
         ctx.beginPath(); ctx.ellipse(-2, -9, 19, 17, 0, 0, TAU); ctx.fill();
+        // 甲壳纹路
         ctx.strokeStyle = 'rgba(0,0,0,0.32)';
         ctx.lineWidth = 2;
         for (let i = 0; i < 2; i++) {
             ctx.beginPath(); ctx.arc(-2, -9, 6 + i * 5, -0.8, 0.8); ctx.stroke();
         }
         // 眼窝的幽光
-        const eg = 0.55 + 0.45 * Math.sin(t * 2.6);
         ctx.fillStyle = c.eye;
-        ctx.globalAlpha = eg;
         ctx.beginPath();
         ctx.arc(9, -12, 4.4, 0, TAU);
         ctx.arc(10, -1, 3.4, 0, TAU);
         ctx.fill();
-        ctx.globalAlpha = 1;
-        // 头冠的棘刺，也超出笼口
-        ctx.fillStyle = c.dark;
+        // 头冠尖刺：与战场上同一套，只是固定不动
+        ctx.fillStyle = shade(c.dark, -0.2);
         for (let i = 0; i < 7; i++) {
             const a = -Math.PI * 0.92 + i * (Math.PI * 1.84 / 6);
             ctx.save();
@@ -8170,7 +8250,6 @@ function bossLevelNeed() { return BOSS_LEVEL_BASE + world.bossKills; }
             ctx.closePath(); ctx.fill();
             ctx.restore();
         }
-        ctx.restore();
         ctx.restore();
     }
     function drawSupplyShip(x, y, t, alpha) {
@@ -8397,6 +8476,7 @@ ctx.save();
         const cx = scrX(world.ring.x), cy = scrY(world.ring.y);
         for (let i = 0; i < world.colonnade.length; i++) {
             const col = world.colonnade[i];
+            if (col.id === COL_SEAT_ID) continue;   // 空位没有宝石，也就没有光柱
             if (!col.id || !save.gems[col.id]) continue;
             const pl = PLANET_BY_ID[col.id];
             const a = -Math.PI / 2 + col.hour * Math.PI / 6;
@@ -8500,7 +8580,7 @@ ctx.save();
         for (let i = 0; i < world.colonnade.length; i++) {
             const col = world.colonnade[i];
             if (Math.hypot(dX(col.x, p.x), dY(col.y, p.y)) > 130) continue;
-            if (!col.id) return;
+            if (!col.id || col.id === COL_SEAT_ID) return;
             const pl = PLANET_BY_ID[col.id];
             const rec = save.planets[col.id];
             const gem = save.gems[col.id] > 0;
@@ -8818,6 +8898,7 @@ function drawPlay() {
             ctx.translate(-W / 2, -PLAY_H / 2);
         }
         drawGround();
+        drawDigPits();            // 坑压在地面上，但压在所有景物与人物之下
         if (world.planet.home) drawEarthHub();
         if (world.moonSide === 'near' && world.lander) {
             // 月球正面的登录器遗址进入同一套按 y 排序的队列
@@ -9060,7 +9141,7 @@ function drawPlay() {
     }
 
 // 取消：住船引擎——在真实场景内播放，与着陆对称，保留原游戏画面
-    const LAUNCH_BOARD = 0.55, LAUNCH_RISE = 2.9, LAUNCH_DUR = 2.45;
+    const LAUNCH_BOARD = 0.55, LAUNCH_RISE = 2.9, LAUNCH_DUR = 3.3;
     function launchSequence() {
         if (!world) return;
         // 记下点击瞬间的镜头位置，用于平滑过渡，避免画面跳变

@@ -1,0 +1,3 @@
+# 这个游戏的页面统一用 LF 换行入库，工作区也保持 LF。
+# 只圈定 games/space_odyssey，避免仓库里其它 18 个 HTML 在下次提交时被整篇重写。
+games/space_odyssey/*.html text eol=lf
