@@ -105,7 +105,7 @@
 (function() {
     'use strict';
 
-    const VERSION = '20261016-1115';
+    const VERSION = '20261016-1703';
 
     const canvas = document.getElementById('gameCanvas');
     const ctx = canvas.getContext('2d');
@@ -2292,6 +2292,7 @@ const PICKUP_BASE = 50;
         const clears = (save.planets[planetId] && save.planets[planetId].clears) || 0;
         return {
             planet: planet,
+            island: false, beachProps: null, bottles: null, bottleNear: -1,
             t: 0,
             runTime: 0,
             cam: { x: startX, y: startY },
@@ -2362,7 +2363,8 @@ const PICKUP_BASE = 50;
         const hDn = (H - cy) / vz + TILE;        // 下半高（画布比 PLAY_H 高）
         // 地图在屏幕上的矩形：月球不环绕，界外要先铺一层纯黑（虚空），再把地面填进边界内
         const gx0 = cx - cam.x * 1, gy0 = cy - cam.y;
-        if (MAP_BOUNDED) {
+        if (world.island) drawIslandGround();
+        else if (MAP_BOUNDED) {
             ctx.fillStyle = '#000000';
             ctx.fillRect(0, 0, W, H);
             ctx.fillStyle = p.ground;
@@ -2691,7 +2693,7 @@ const PICKUP_BASE = 50;
                 if (h > 0.62) {
                     const twx = wrapVal(tx * TILE + 28 + hash2(tx * 5, ty * 3) * (T - 56), MAP_W);
                     const twy = wrapVal(ty * TILE + 46 + hash2(tx * 9, ty * 7) * (T - 80), MAP_H);
-                    if (!treeBlocked(twx, twy)) {          // 已有绘图的范围不种树
+                    if (!treeBlocked(twx, twy) && (!world.island || islandZone(twx, twy) === 'grass')) {          // 已有绘图的范围不种树
                         const seed = hash2(tx * 2.9, ty * 4.3);
                         groundProps.push({ wy: twy, draw: (function (a, b, c) { return function () { drawTreeProp(a, b, c, t); }; })(twx, twy, seed) });
                     }
@@ -2701,12 +2703,13 @@ const PICKUP_BASE = 50;
                     for (let i = 0; i < 7; i++) {
                         const gx = sx + hash2(tx * 17 + i, ty * 19) * T;
                         const gy = sy + hash2(tx * 23 + i, ty * 29) * T;
+                        if (world.island && islandZone(gx, gy) !== 'grass') continue;
                         ctx.beginPath();
                         ctx.moveTo(gx, gy);
                         ctx.lineTo(gx + 4, gy - 9);
                         ctx.stroke();
                     }
-                } else {
+                } else if (!world.island || islandZone(sx + h * T, sy + (1 - h) * T) === 'grass') {
                     ctx.fillStyle = 'rgba(0,0,0,0.12)';
                     ctx.beginPath();
                     ctx.ellipse(sx + h * T, sy + (1 - h) * T, 12, 8, 0, 0, Math.PI * 2);
@@ -7075,6 +7078,8 @@ function bossLevelNeed() { return BOSS_LEVEL_BASE + world.bossKills; }
             p.moving = true;
         }
         if (p.rollEnd) { p.rollEnd = false; rollEndPush(p); }
+        // 地球就是一座岛：人物只能沿沙滩走，不能进入大海
+        if (world.island) clampToIsland(p);
         // 月球：正面越界翻到背面，背面把人按在实体边界内
         if (world.moonSide === 'far') {
             updateMoonBoundary(dt);
@@ -7110,7 +7115,24 @@ function bossLevelNeed() { return BOSS_LEVEL_BASE + world.bossKills; }
                 if (menuEdge('right')) rotatePkg(1);
             }
         }
-        if (actPress()) playerAction();
+        // 漂流瓶：走近按 J/A 读瓶中字条（消费这次按键，避免同时触发接伋引擎）
+        let bottleUsed = false;
+        if (world.bottles && world.bottles.length) {
+            world.bottleNear = -1;
+            for (let i = 0; i < world.bottles.length; i++) {
+                const b = world.bottles[i];
+                if (b.readT > 0) b.readT -= dt;
+                if (world.bottleNear < 0 && Math.hypot(dX(b.x, p.x), dY(b.y, p.y)) < BOTTLE_R) world.bottleNear = i;
+            }
+            const bn = world.bottleNear;
+            if (bn >= 0 && actPress()) {
+                const b = world.bottles[bn];
+                if (b.readT <= 0) sfx('found');
+                b.readT = BOTTLE_READ_T;
+                bottleUsed = true;
+            }
+        }
+        if (actPress() && !bottleUsed) playerAction();
         if (rollPress()) tryRoll();
 
         // 刷新敌人
@@ -7290,6 +7312,8 @@ function bossLevelNeed() { return BOSS_LEVEL_BASE + world.bossKills; }
         if (world.boss && !world.bossDefeated && world.boss.hp <= 0) {
             const b = world.boss;
             world.bossDefeated = true;
+            // 记下刚打完的 BOSS 所在星球：回到地球时汇报蓝色漂流瓶
+            justClearedPlanet = world.planet.id;
             world.bossKills++;          // 下一次 BOSS 的出现等级门槛随之上抬
             // BOSS 一死，还没放完的技能与场上残留的攻击全部作废：
             // 预警队列倒计时不受 bossUpdate 的提前 return 影响，不清的话会照常发动
@@ -8443,6 +8467,479 @@ function bossLevelNeed() { return BOSS_LEVEL_BASE + world.bossKills; }
     // 纵向受取景高度卡死：1/5/7/11 点那四根柱子的柱脚必须留在画面内，短径再大就看不见了
     const COL_RING = { rX: 1120, rY: 630 };
     // 已挖到的行星宝石数量（地球自己不算；每颗宝石只算一次）
+// ==================== 地球：海岛 · 沙滩 · 漂流瓶 ====================
+// 岛的整体形状：极坐标下用四层正弦叠加扰动半径，边缘因此凸凹不规则；
+// 横竖半径不同（贴近十二柱星环的椭圆比例），整体看起来仍是一枚近似的圆岛。
+const ISLAND = { rx: 1480, ry: 1000, beach: 140, shells: 42 };
+function islandCX() { return MAP_W * 0.5; }
+function islandCY() { return MAP_H * 0.62; }
+// 岸线半径系数（1 为基准，凸凹就来自这几层叠加）
+function islandShape(a) {
+    return 1 + 0.062 * Math.sin(3 * a + 0.6) + 0.045 * Math.sin(5 * a + 2.1)
+        + 0.030 * Math.sin(7 * a - 1.2) + 0.019 * Math.sin(11 * a + 0.4);
+}
+// 沿 a 方向，一个归一化半径单位对应多少世界像素（椭圆上随方向变化）
+function islandScale(a) { return Math.hypot(ISLAND.rx * Math.cos(a), ISLAND.ry * Math.sin(a)); }
+function islandShore(a) { return islandShape(a); }                     // 水线：人物能走到的最外圈
+function islandSand(a) { return islandShape(a) - ISLAND.beach / islandScale(a); }   // 沙滩内沿
+// 一个世界坐标落在 sea / sand / grass 哪一块
+function islandZone(x, y) {
+    const nx = (x - islandCX()) / ISLAND.rx, ny = (y - islandCY()) / ISLAND.ry;
+    const r = Math.hypot(nx, ny);
+    if (r < 1e-6) return 'grass';
+    const a = Math.atan2(ny, nx);
+    if (r > islandShore(a) + 1e-6) return 'sea';   // 岸线本身算沙滩，越过去才是海
+    if (r >= islandSand(a) - 1e-6) return 'sand';
+    return 'grass';
+}
+// 把任何东西按回岸线以内：人物只能走到沙滩，不能走进大海
+function clampToIsland(o) {
+    const nx = (o.x - islandCX()) / ISLAND.rx, ny = (o.y - islandCY()) / ISLAND.ry;
+    const r = Math.hypot(nx, ny);
+    if (r < 1e-6 || !isFinite(r)) return;
+    const a = Math.atan2(ny, nx);
+    const lim = islandShore(a) - 2.5 / islandScale(a);   // 留一点余量，别把脚踩进水里
+    if (r <= lim) return;
+    const k = lim / r;
+    o.x = wrapVal(islandCX() + nx * k * ISLAND.rx, MAP_W);
+    o.y = wrapVal(islandCY() + ny * k * ISLAND.ry, MAP_H);
+}
+// 沙滩上的某个随机点（t：0 内沿 → 1 水线）
+function islandBeachPoint(a, t) {
+    const s = lerp(islandSand(a) + 0.06, islandShore(a) - 0.05, t);
+    return {
+        x: wrapVal(islandCX() + ISLAND.rx * s * Math.cos(a), MAP_W),
+        y: wrapVal(islandCY() + ISLAND.ry * s * Math.sin(a), MAP_H)
+    };
+}
+
+    // ---------- 地面绘制：大海 → 沙滩 → 草地 → 潮汐海浪 → 贝壳螃蟹 ----------
+    function drawIslandGround() {
+        const cx = scrX(islandCX()), cy = scrY(islandCY());
+        const rx = ISLAND.rx, ry = ISLAND.ry;
+        const R = Math.max(rx, ry);
+
+        // 1) 大海：整屏铺满，海面由中心向外加深
+        const og = ctx.createRadialGradient(cx, cy, R * 0.72, cx, cy, R * 2.2 + 700);
+        og.addColorStop(0, '#2a6f9e');
+        og.addColorStop(0.35, '#1a5382');
+        og.addColorStop(0.75, '#113d64');
+        og.addColorStop(1, '#0a2a48');
+        ctx.fillStyle = og;
+        ctx.fillRect(0, 0, W, H);
+        // 海面波光：几道随时间缓慢漂移的横向亮带
+        ctx.save();
+        ctx.globalCompositeOperation = 'lighter';
+        for (let i = 0; i < 5; i++) {
+            const yy = cy - R + ((world.t * (7 + i * 3) + i * 640) % (R * 2.6)) - 60;
+            const gg = ctx.createLinearGradient(0, yy - 26, 0, yy + 26);
+            gg.addColorStop(0, 'rgba(120,200,240,0)');
+            gg.addColorStop(0.5, 'rgba(120,200,240,0.045)');
+            gg.addColorStop(1, 'rgba(120,200,240,0)');
+            ctx.fillStyle = gg;
+            ctx.fillRect(0, yy - 26, W, 52);
+        }
+        ctx.restore();
+
+        // 2) 近岸浅水：先沿岸线铺一层浅蓝，再让陆地盖住内侧一半
+        const N = 240;
+        function shorePath(getR) {
+            ctx.beginPath();
+            for (let i = 0; i <= N; i++) {
+                const a = i / N * TAU;
+                const rr = getR(a);
+                const x = cx + rx * rr * Math.cos(a), y = cy + ry * rr * Math.sin(a);
+                if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+            }
+            ctx.closePath();
+        }
+        ctx.save();
+        ctx.lineJoin = 'round';
+        shorePath(islandShore);
+        ctx.strokeStyle = 'rgba(122,214,255,0.22)'; ctx.lineWidth = 104; ctx.stroke();
+        ctx.strokeStyle = 'rgba(168,235,255,0.30)'; ctx.lineWidth = 46; ctx.stroke();
+        ctx.restore();
+        // 湿沙：贴近水线的一圈颜色稍深
+        shorePath(function (a) { return islandShore(a) - ISLAND.beach * 0.3 / islandScale(a); });
+        ctx.fillStyle = '#cbb083';
+        ctx.fill();
+        shorePath(islandShore);
+        ctx.fillStyle = '#e6d6a6';
+        ctx.fill();
+        // 草地：从沙滩内沿开始
+        shorePath(islandSand);
+        ctx.fillStyle = '#4f7f46';
+        ctx.fill();
+        // 草地与沙滩的交界：一圈深色草缘
+        ctx.strokeStyle = 'rgba(58,92,48,0.45)';
+        ctx.lineWidth = 5;
+        ctx.stroke();
+        // 浪花刚刚打湿的那条白线
+        shorePath(islandShore);
+        ctx.strokeStyle = 'rgba(255,255,255,0.45)';
+        ctx.lineWidth = 2.6;
+        ctx.stroke();
+
+        // 3) 潮汐海浪：沿岸线一排排白浪，长边顺着岸线，随潮汐涨落并逐渐淡出
+        const NW = 96;
+        ctx.save();
+        ctx.lineCap = 'round';
+        for (let i = 0; i < NW; i++) {
+            const a = i / NW * TAU;
+            const S = islandShore(a);
+            const wx = islandCX() + rx * S * Math.cos(a), wy = islandCY() + ry * S * Math.sin(a);
+            const sx = scrX(wx), sy = scrY(wy);
+            if (sx < -60 || sx > W + 60 || sy < -60 || sy > PLAY_H + 60) continue;
+            let vx = rx * S * Math.cos(a), vy = ry * S * Math.sin(a);
+            const vl = Math.hypot(vx, vy) || 1;
+            vx /= vl; vy /= vl;
+            const tang = Math.atan2(vy, vx) + Math.PI / 2;      // 泡沫长边贴着岸线走
+            const tide = Math.sin(world.t * 1.15 + i * 0.44) * 9 + Math.sin(world.t * 0.53 + i * 0.17) * 6;
+            for (let k = 0; k < 3; k++) {
+                const off = 5 + k * 14 + tide * (1 - k * 0.35);
+                const al = (0.42 - k * 0.12) * (0.5 + 0.5 * Math.sin(world.t * 1.7 - i * 0.31 + k * 0.8));
+                if (al <= 0.02) continue;
+                ctx.strokeStyle = 'rgba(236,251,255,' + al.toFixed(3) + ')';
+                ctx.lineWidth = 2.8 - k * 0.7;
+                ctx.beginPath();
+                ctx.ellipse(sx + vx * off, sy + vy * off, 15 + k * 5, 6 + k * 2, tang, -1.05, 1.05);
+                ctx.stroke();
+            }
+        }
+        ctx.restore();
+
+        // 4) 沙滩上的贝壳与螃蟹
+        const bp = world.beachProps;
+        if (bp) {
+            for (let i = 0; i < bp.length; i++) {
+                const b = bp[i];
+                const sx = scrX(b.x), sy = scrY(b.y);
+                if (sx < -24 || sx > W + 24 || sy < -24 || sy > PLAY_H + 24) continue;
+                ctx.save();
+                ctx.translate(sx, sy);
+                if (b.kind === 1) drawBeachCrab(b, world.t);
+                else drawBeachShell(b);
+                ctx.restore();
+            }
+        }
+    }
+    // 贝壳：半开的扇形 + 放射纹
+    function drawBeachShell(b) {
+        ctx.save();
+        ctx.rotate(b.rot);
+        ctx.fillStyle = 'rgba(60,44,30,0.16)';
+        ctx.beginPath();
+        ctx.ellipse(1, 1.5, 8, 5.5, 0, 0, TAU);
+        ctx.fill();
+        ctx.fillStyle = b.tint;
+        ctx.beginPath();
+        ctx.moveTo(-7.5, 3);
+        ctx.arc(0, 3, 7.8, Math.PI, 0);
+        ctx.closePath();
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(120,92,64,0.55)';
+        ctx.lineWidth = 0.8;
+        ctx.stroke();
+        ctx.strokeStyle = 'rgba(255,255,255,0.5)';
+        ctx.lineWidth = 0.9;
+        for (let i = -2; i <= 2; i++) {
+            ctx.beginPath();
+            ctx.moveTo(0, 3);
+            ctx.lineTo(Math.sin(i * 0.42) * 7.4, 3 - Math.cos(i * 0.42) * 6.6);
+            ctx.stroke();
+        }
+        ctx.restore();
+    }
+    // 螃蟹：会在沙上小幅度横着挪动
+    function drawBeachCrab(b, t) {
+        const sc = Math.sin(t * 0.9 + b.seed) * 2.4;
+        ctx.save();
+        ctx.translate(sc, Math.sin(t * 1.8 + b.seed) * 0.8);
+        ctx.fillStyle = 'rgba(60,30,20,0.18)';
+        ctx.beginPath();
+        ctx.ellipse(1, 3, 7.6, 3.4, 0, 0, TAU);
+        ctx.fill();
+        ctx.fillStyle = b.tint;
+        ctx.beginPath();
+        ctx.ellipse(0, 0, 7, 4.6, 0, 0, TAU);
+        ctx.fill();
+        // 腿
+        ctx.strokeStyle = b.tint;
+        ctx.lineWidth = 1.3;
+        ctx.lineCap = 'round';
+        for (let s = -1; s <= 1; s += 2) {
+            for (let i = -1; i <= 1; i++) {
+                const wig = Math.sin(t * 7 + i + (s > 0 ? 0 : 1.5)) * 1.6;
+                ctx.beginPath();
+                ctx.moveTo(s * 3.4, i * 2.2);
+                ctx.lineTo(s * (7.4 + i), i * 3.4 + wig);
+                ctx.stroke();
+            }
+            // 螯
+            ctx.fillStyle = b.tint;
+            ctx.beginPath();
+            ctx.ellipse(s * 7.6, -2.6, 2.6, 1.9, s * 0.5, 0, TAU);
+            ctx.fill();
+        }
+        // 眼
+        ctx.fillStyle = '#2a1410';
+        ctx.beginPath();
+        ctx.arc(-1.7, -4.2, 0.9, 0, TAU);
+        ctx.arc(1.7, -4.2, 0.9, 0, TAU);
+        ctx.fill();
+        ctx.restore();
+    }
+
+    // ==================== 漂流瓶 ====================
+    // 通用漂流瓶：每次进入地球在沙滩随机刷新 3 个绿色瓶子，瓶中字条从固定文库里随机取
+    const BOTTLES_TEXT = [
+        '「启程那天，父亲把一枚旧罗盘塞进我口袋，说：往太阳的反方向走，总会找到回家的浪。」',
+        '「第一只漂流瓶是我自己扔的。写给二十年后的我：请先把脚下的地走熟，再抬头。」',
+        '「在木卫二的冰下打捞出一段录音，声音很轻：如果你听见这句，说明我们没能回来。」',
+        '「船体外壳上有一处焦痕，形状像一只张开的手。它一直提醒我，那次我没有回头。」',
+        '「老船长说，海王星的光是最诚实的镜子，因为它照出你不敢承认的自己。」',
+        '「我把妈妈的食谱刻进舱壁第十三层。等我回来，就照着它做一顿饭。」',
+        '「第七次巡航后我不再记录星图了。星图会出卖人，会把人变成数据。」',
+        '「有人在火星的沙里埋了一整排空罐头，标签上都写着同一句话：还没到。」',
+        '「金星上有人留下一面镜子。他说：如果你看到我，说明你也被困在这里了。」',
+        '「土星环的影子一年比一年薄。老人们说，那是有人在一点点吃掉它。」',
+        '「我在冥王星背面的冰层里，挖出一只还没凉的行李箱。标签是我的名字，日期在明天。」',
+        '「给自己的提醒：不要在深夜打开陌生的信。」',
+        '「返航途中遇见一艘空船，座位摆得整整齐齐，餐桌上摆了两副碗筷。」',
+        '「水晶球里封着一段阳光。它来自一个已经变成海的世界。」',
+        '「流星雨那晚我们全停了火，抬头看了三个小时。事后谁也没说话。」',
+        '「把一枚纽扣扔进太阳之前，我许了个愿。愿望这种东西据说会被高温放大。」',
+        '「爷爷说太阳系是一条河，星球是石头，而我们都是被冲上岸的贝壳。」',
+        '「三号货舱里那块会自己发热的石头，我决定不再研究它了。它暖，够用了。」',
+        '「有一封没署名的信：别相信任何自称从地球来的人。」',
+        '「在南极的冰盖下测到一段心跳，比太阳的年龄还要久。」',
+        '「她的遗物里只有一支干掉的笔，和一张写着「今天也在想你」的便签。」',
+        '「我发现导航仪的误差，总在最想回家的时候变得最大。」',
+        '「潮水退去后沙滩上留下很多脚印。我数了数，都是我的。」',
+        '「一封写给四十岁的信：那时候的我，你还在打仗吗？」',
+        '「银河系里有几千亿颗星，我偏要挑最远的那一颗去。」',
+        '「风把沙吹成了海浪的形状。我跪下来摸了很久。」',
+        '「补给箱里多了一份不属于自己的午餐。我把它吃了，谢谢你。」',
+        '「海浪一遍遍擦掉我的名字。我又写了一遍。」',
+        '「如果有一天你在沙滩上捡到这只瓶子，请替我看看海。」',
+        '「我把所有地图都扔了，只留一张手画的：家在太阳的另一边。」'
+    ];
+    // 各星球专属线索：打败该星 BOSS 后带回来的那只蓝色瓶子
+    const BOTTLES_PLANET = {
+        mercury: [
+            '「水星的坑不是陨石砸的，是水涨上来又退下去，反复搬运出来的。」',
+            '「阿刻罗米的壳上刻满了正字，一层压一层，数不清。」',
+            '「极夜那侧能听见水在石头里流动，像有人在墙的另一头走路。」',
+            '「把瓶子扔进日冕的缝隙，它回来时少了半条。」',
+            '「灰烬之下埋着旧的观测站，门牌还亮着：欢迎回来，编号 07。」'
+        ],
+        venus: [
+            '「金星的云是酸的，可云下的城市还亮着灯，没人出来收。」',
+            '「硫酸雨停的那半小时，整颗行星安静得像在屏息。」',
+            '「维纳斯的冠冕是戴久了压出来的，不是长出来的。」',
+            '「有人在云层里养了一片温室，玻璃罩上写着：给未来的人。」',
+            '「把眼泪装进瓶子里带回来，它落地还是滚烫的。」'
+        ],
+        mars: [
+            '「火星的沙下有河床，只是从来没有等到过水。」',
+            '「阿里斯翻身的时候，整颗行星会亮一下，像谁点了根火柴。」',
+            '「在沙尘暴里捡到半张车票，终点站的名字被烤糊了。」',
+            '「地火熄灭的第七天，石头缝里冒出了一株绿的。」',
+            '「沙子里埋着一艘船的龙骨，比火星上任何一场风都要古老。」'
+        ],
+        jupiter: [
+            '「大红斑不是伤口，是一场持续了三百年的怒。」',
+            '「泰坦站在雷雨里指挥，好像整片风暴都是他的兵。」',
+            '「木星的氢是液态的金属。落进去的人会变成一枚戒指。」',
+            '「把纸条卷进探测器的帆布里，问它能不能等到有人读。」',
+            '「在云层的夹缝里，我们看见了另一个自己放出的探针。」'
+        ],
+        saturn: [
+            '「光环不是装饰，是被砍下来的星环。」',
+            '「环王的旋刃会先转三圈才出手，像在数你的心跳。」',
+            '「环缝里悬着无数碎冰，踩上去会响，像教堂。」',
+            '「有人把一整座城的地图刻在冰块上，然后推它出去旅行。」',
+            '「环的阴影在土卫上投下一道细细的黑线，一百年才移动一寸。」'
+        ],
+        uranus: [
+            '「天王星是躺着转的，整颗星球都在打盹。」',
+            '「冰棱射出去之后不会回来，它们变成了极光。」',
+            '「在极夜里点一盏灯，等了四十天才有回音。」',
+            '「乌拉诺斯说：真正的刺，要直着捅进心里才不响。」',
+            '「甲烷湖面上倒映着两颗太阳，其实有一颗只是反光。」'
+        ],
+        neptune: [
+            '「海王星的风比音速还快，而这里一点声音都没有。」',
+            '「涅柔斯的眼睛不是用来看的，是用来记住的。」',
+            '「追踪冰弹回来了，却没有带回它追的那个东西。」',
+            '「海底有一座发射塔，指向我们从来没去过的星系。」',
+            '「有人在深海写下：如果你读到这里，请替我往上游。」'
+        ],
+        pluto: [
+            '「冥王星的心是冰做的，跳一下，冰面就裂一次。」',
+            '「冥府的召唤不是攻击，是点名。被点到的人必须回答。」',
+            '「在冥卫的阴影里，我们烧掉了最后一张返航地图。」',
+            '「极夜持续四十年。有人在这四十年里生了一个孩子。」',
+            '「冥府的门开着一条缝，门缝里透出地球的绿色。」'
+        ]
+    };
+    const BOTTLE_R = 78;                 // 走近漂流瓶可以读字条的半径
+    const BOTTLE_READ_T = 7.0;           // 字条面板停留时间（秒）
+    let justClearedPlanet = null;        // 刚打完 BOSS 回到地球时携带的星球 id（用掉即清）
+
+    // 生成一只漂流瓶；blue 为真时从该星球的专属线索里取一条
+    function makeBottle(a, blue, pid) {
+        const pt = islandBeachPoint(a, Math.random() * 0.6 + 0.2);
+        const list = blue ? (BOTTLES_PLANET[pid] || BOTTLES_TEXT) : BOTTLES_TEXT;
+        return {
+            x: pt.x, y: pt.y, seed: Math.random() * 10, rot: Math.random() * TAU,
+            blue: !!blue, planet: pid || null,
+            text: list[randInt(0, list.length - 1)],
+            readT: 0
+        };
+    }
+    // 沙滩上的贝壳 / 螃蟹
+    function buildBeachProps() {
+        const out = [];
+        for (let i = 0; i < ISLAND.shells; i++) {
+            const a = rand(0, TAU);
+            const pt = islandBeachPoint(a, Math.random() * 0.7 + 0.15);
+            const crab = Math.random() < 0.38;
+            out.push({
+                x: pt.x, y: pt.y, kind: crab ? 1 : 0, rot: rand(0, TAU), seed: Math.random() * 6.28,
+                tint: crab
+                    ? (Math.random() < 0.5 ? '#e2603f' : '#d4763c')
+                    : pick(['#f6e7d2', '#efd9c0', '#e8cfe8', '#d9e9f2'])
+            });
+        }
+        return out;
+    }
+    // 每次进入地球：沙滩随机刷新 3 个绿色瓶子；刚打完 BOSS 回来时多一个蓝色瓶子
+    function buildBottles() {
+        world.bottles = [];
+        for (let i = 0; i < 3; i++) world.bottles.push(makeBottle(rand(0, TAU), false, null));
+        if (justClearedPlanet && BOTTLES_PLANET[justClearedPlanet]) {
+            world.bottles.push(makeBottle(rand(0, TAU), true, justClearedPlanet));
+            justClearedPlanet = null;
+        }
+        world.bottleNear = -1;
+    }
+    // 漂流瓶本体：半埋在沙里的玻璃瓶 + 塞子 + 飘出来的纸条
+    function drawBottleProp(x, y, t, b, near) {
+        const sway = Math.sin(t * 1.6 + b.seed) * 0.05;
+        const glass = b.blue ? '#7cc8ff' : '#7cf0a8';
+        const deep = b.blue ? '#2f6ea8' : '#2f9c72';
+        ctx.save();
+        ctx.translate(x, y);
+        ctx.scale(1.35, 1.35);
+        ctx.rotate(b.rot * 0.12 + sway);
+        ctx.fillStyle = 'rgba(40,30,20,0.22)';
+        ctx.beginPath();
+        ctx.ellipse(2, 4, 11, 4.2, 0, 0, TAU);
+        ctx.fill();
+        ctx.rotate(-Math.PI * 0.5 + b.rot * 0.1);       // 瓶身横躺
+        ctx.fillStyle = 'rgba(236,250,244,0.55)';
+        ctx.beginPath();
+        ctx.ellipse(-2, -2, 10, 6, 0, 0, TAU);
+        ctx.fill();
+        const g = ctx.createLinearGradient(0, -8, 0, 8);
+        g.addColorStop(0, glass);
+        g.addColorStop(1, deep);
+        ctx.fillStyle = g;
+        roundRectPath(-9, -7, 15, 14, 5);
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(255,255,255,0.55)';
+        ctx.lineWidth = 1.1;
+        roundRectPath(-9, -7, 15, 14, 5);
+        ctx.stroke();
+        // 瓶口 + 软木塞
+        ctx.fillStyle = deep;
+        roundRectPath(6, -3.2, 6, 6.4, 2);
+        ctx.fill();
+        ctx.fillStyle = '#c8a06a';
+        roundRectPath(11.5, -3.6, 5, 7.2, 2.4);
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(90,66,38,0.5)';
+        ctx.lineWidth = 0.8;
+        roundRectPath(11.5, -3.6, 5, 7.2, 2.4);
+        ctx.stroke();
+        // 高光
+        ctx.fillStyle = 'rgba(255,255,255,0.6)';
+        ctx.beginPath();
+        ctx.ellipse(-4, -4.2, 3.6, 1.5, -0.4, 0, TAU);
+        ctx.fill();
+        // 瓶里的纸条
+        ctx.fillStyle = 'rgba(250,246,232,0.95)';
+        roundRectPath(-3, -2.4, 7, 5, 1);
+        ctx.fill();
+        ctx.restore();
+        if (near) {
+            ctx.save();
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            setFont(13, 'bold');
+            ctx.fillStyle = 'rgba(0,0,0,0.75)';
+            ctx.fillText('按 ' + hintConfirm() + ' 阅读漂流瓶', x + 1, y - 34 + 1);
+            ctx.fillStyle = b.blue ? '#a8dcff' : '#b6ffd8';
+            ctx.fillText('按 ' + hintConfirm() + ' 阅读漂流瓶', x, y - 34);
+            ctx.restore();
+        }
+    }
+    // CJK 逐字折行
+    function wrapCJK(text, maxW) {
+        const out = [];
+        let line = '';
+        for (const ch of text) {
+            if (ch === '\n') { out.push(line); line = ''; continue; }
+            if (ctx.measureText(line + ch).width > maxW && line) { out.push(line); line = ch; }
+            else line += ch;
+        }
+        if (line) out.push(line);
+        return out;
+    }
+    // 读漂流瓶：沿用石柱说明框的样式，摆在瓶子附近
+    function drawBottleTip() {
+        if (world.over || world.landing || world.launch) return;
+        const i = world.bottleNear;
+        if (i < 0 || !world.bottles || !world.bottles[i]) return;
+        const b = world.bottles[i];
+        if (b.readT <= 0) return;
+        const p = world.player;
+        const col = b.blue ? '#7cc8ff' : '#7cf0a8';
+        const title = b.blue ? (PLANET_BY_ID[b.planet] ? PLANET_BY_ID[b.planet].name : '远方') + ' · 战报' : '漂流瓶';
+        ctx.save();
+        ctx.globalAlpha = Math.min(1, b.readT / 0.6);
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'middle';
+        setFont(15, 'bold');
+        const lines = wrapCJK(b.text, 366);
+        const bw = 400, bh = 34 + lines.length * 22;
+        const bx = clamp(scrX(b.x) - bw / 2, 12, W - bw - 12);
+        const by = clamp(scrY(b.y) - bh - 62, 12, PLAY_H - bh - 12);
+        ctx.globalAlpha = 0.82 * Math.min(1, b.readT / 0.6);
+        ctx.fillStyle = 'rgba(10,18,32,0.95)';
+        roundRectPath(bx, by, bw, bh, 10);
+        ctx.fill();
+        ctx.strokeStyle = hexA(col, 0.55);
+        ctx.lineWidth = 1.6;
+        roundRectPath(bx + 1, by + 1, bw - 2, bh - 2, 9);
+        ctx.stroke();
+        ctx.globalAlpha = Math.min(1, b.readT / 0.6);
+        setFont(15, 'bold');
+        ctx.fillStyle = hexA(col, 0.95);
+        ctx.fillText(title, bx + 18, by + 22);
+        setFont(13, 'normal');
+        ctx.fillStyle = 'rgba(224,238,252,0.92)';
+        for (let k = 0; k < lines.length; k++) ctx.fillText(lines[k], bx + 18, by + 46 + k * 22);
+        // 细引线连回瓶口
+        ctx.strokeStyle = hexA(col, 0.4);
+        ctx.lineWidth = 1.4;
+        ctx.beginPath();
+        ctx.moveTo(scrX(b.x), scrY(b.y) - 12);
+        ctx.lineTo(clamp(scrX(b.x), bx + 10, bx + bw - 10), by + bh);
+        ctx.stroke();
+        ctx.restore();
+    }
     function gemTotal() {
         let n = 0;
         for (const p of PLANETS) if (!p.home && save.gems[p.id] > 0) n++;
@@ -8474,6 +8971,10 @@ function bossLevelNeed() { return BOSS_LEVEL_BASE + world.bossKills; }
         }
         world.portal = gemTotal() >= COL_GEM_PORTAL ? { x: world.ring.x, y: world.ring.y } : null;
         buildNoTreeZones(cx, cy);
+        // 地球是一座岛：沙滩 / 海浪 / 贝壳蟹虾 / 漂流瓶
+        world.island = true;
+        world.beachProps = buildBeachProps();
+        buildBottles();
     }
     // 地表禁植区：石柱阵 / 基地广场 / 火箭 / 补给飞船一带不长树
     function buildNoTreeZones(cx, cy) {
@@ -9026,6 +9527,17 @@ ctx.save();
             }
         }
         // 石柱铺成的地面刻线 + 宝石光柱 + 圈心传送门（都画在人物之下）
+        // 漂流瓶混进地面道具按 y 绘制，走近时提示按 J/A 阅读
+        if (world.bottles) {
+            for (let i = 0; i < world.bottles.length; i++) {
+                const b = world.bottles[i];
+                groundProps.push({
+                    wy: b.y, draw: (function (sx, sy, bb, idx) {
+                        return function () { drawBottleProp(sx, sy, world.t, bb, world.bottleNear === idx); };
+                    })(scrX(b.x), scrY(b.y), b, i)
+                });
+            }
+        }
         if (world.ring) drawColonnadeRing();
         drawColonnadeBeams();
         drawColonnadePortal();
@@ -9570,6 +10082,8 @@ function drawPlay() {
         drawHudPlay();
         // 地球石柱的说明框：压在最上面
         if (world.planet.home && !world.over && !world.landing && !world.launch) drawColonnadeTip(p);
+        // 读漂流瓶里的字条（沿用石柱说明框的样式）
+        drawBottleTip();
         // 战备配置菜单（地球 · 补给航天飞船）
         if (world.inv && world.inv.on) drawInvMenu();
 
