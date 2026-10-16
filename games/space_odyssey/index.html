@@ -105,7 +105,7 @@
 (function() {
     'use strict';
 
-    const VERSION = '20261016-2011';
+    const VERSION = '20261017-0243';
 
     const canvas = document.getElementById('gameCanvas');
     const ctx = canvas.getContext('2d');
@@ -202,7 +202,9 @@ const PICKUP_BASE = 50;
     const ROLL_BAR_W = 62, ROLL_BAR_H = 7, ROLL_BAR_DY = 18;  // 脚下翻滚充能条
     const ROCKET_SCALE = 1.7;          // 星球表面火箭的放大倍率
     const ORB_HOMING_SPEED = 620;       // 经验球锁定后的追踪速度（高于玩家最大速度，保证必拾取）
-    const PICKUP_TOL = 1.15;             // 实际拾取判定相对绘制圈的放大系数（抵消取整误差）
+    const PICKUP_PAD = 8;                 // 实际拾取判定比绘制的圈多出的固定余量（像素）
+    // 必须是固定的像素值，不能写成百分比：神秘核心把拾取范围抬到 200~300 之后，
+    // 按百分比放大会让真实判定比画出来的圈大出三四十像素，看着就像「还没到边就吸过去了」
     const PKG_TIME = 10.0;               // 装备箱选择时限（秒）
     const PKG_TIMER_R = 28;              // 选择倒计时圆环半径（紧贴头顶图标 26*0.95≈24.7）
     const BASE_DMG = 1;                  // 初始攻击力（不再随等级提升）
@@ -2295,7 +2297,7 @@ const PICKUP_BASE = 50;
         const clears = (save.planets[planetId] && save.planets[planetId].clears) || 0;
         return {
             planet: planet,
-            island: false, beachProps: null, bottles: null, bottleNear: -1,
+            island: false, beachProps: null, weeds: null, bottles: null, bottleNear: -1,
             t: 0,
             runTime: 0,
             cam: { x: startX, y: startY },
@@ -4930,21 +4932,26 @@ const INV_SW_GAP = 14;                  // 名称 / 轨道 / 状态文字之间�
         pg.addColorStop(0.40, 'rgba(132,248,190,0.10)');
         pg.addColorStop(0.78, 'rgba(120,240,170,0.042)');
         pg.addColorStop(1, 'rgba(120,240,170,0)');
-ctx.globalCompositeOperation = 'lighter';
+        ctx.globalCompositeOperation = 'lighter';
         ctx.fillStyle = pg;
         ctx.beginPath();
         ctx.arc(cx, cy, pr, 0, TAU);
         ctx.fill();
-        // 秘籍道具的环绕伤害：以射程为半径的一圈淡金内发光，标出持续掉血的区域
+        // 捡到神秘核心之后，两套范围各补一圈虚线边界：绿色 = 拾取范围，红色 = 射击范围。
+        // 两个圈本身都是柔和渐变、边界模糊，标出边界之后才好认谁是谁。
         if (world.player.cheat > 0) {
-            const r0 = st.fireRange;
-            const ag = ctx.createRadialGradient(cx, cy, r0 * 0.7, cx, cy, r0);
-            ag.addColorStop(0, 'rgba(255,210,74,0)');
-            ag.addColorStop(1, 'rgba(255,210,74,0.085)');
-            ctx.fillStyle = ag;
+            ctx.globalCompositeOperation = 'source-over';
+            ctx.setLineDash([11, 8]);
+            ctx.lineWidth = 1.6;
+            ctx.strokeStyle = 'rgba(96,255,166,0.5)';
             ctx.beginPath();
-            ctx.arc(cx, cy, r0, 0, TAU);
-            ctx.fill();
+            ctx.arc(cx, cy, pr, 0, TAU);
+            ctx.stroke();
+            ctx.strokeStyle = 'rgba(255,92,92,0.5)';
+            ctx.beginPath();
+            ctx.arc(cx, cy, st.fireRange, 0, TAU);
+            ctx.stroke();
+            ctx.setLineDash([]);
         }
         ctx.restore();
     }
@@ -7453,8 +7460,8 @@ function bossLevelNeed() { return BOSS_LEVEL_BASE + world.bossKills; }
         // BOSS 击败后停止拾取，场上光点冻结为纯装饰
         // 未被拾取的经验球最多停留 ORB_LIFE 秒，超时淡出消失，避免光点无限堆积
         const pickR = pickupRange(p);
-        // 判定略宽于绘制的圈，抵消取整误差并让圈边缘的手感更跟手
-        const lockR = pickR * PICKUP_TOL;
+        // 判定略宽于绘制的圈，抵消取整误差并让圈边缘的手感更跟手（只多一个固定余量）
+        const lockR = pickR + PICKUP_PAD;
         const oby = playerBodyY();        // 身形中心（与范围圈一致）
         for (let i = world.orbs.length - 1; i >= 0; i--) {
             const o = world.orbs[i];
@@ -8473,9 +8480,9 @@ function bossLevelNeed() { return BOSS_LEVEL_BASE + world.bossKills; }
 // ==================== 地球：海岛 · 沙滩 · 漂流瓶 ====================
 // 岛的整体形状：极坐标下用四层正弦叠加扰动半径，边缘因此凸凹不规则；
 // 横竖半径不同（贴近十二柱星环的椭圆比例），整体看起来仍是一枚近似的圆岛。
-// 长短径、沙滩宽度都放大到原来的两倍，沙滩上的贝壳螃蟹按面积同步加密；
+// 长短径、沙滩宽度都放大到原来的两倍；沙滩上的贝壳螃蟹反而大幅减少，改成沿整圈岸线摊开；
 // 随之放大的还有整幅地球地图（见 newWorld），四周的海水足够宽，两岸不会在环接缝处撞上。
-const ISLAND = { rx: 2960, ry: 2000, beach: 280, shells: 150 };
+const ISLAND = { rx: 2960, ry: 2000, beach: 280, shells: 32 };
 function islandCX() { return MAP_W * 0.5; }
 function islandCY() { return MAP_H * 0.62; }
 // 岸线半径系数（1 为基准，凸凹就来自这几层叠加）
@@ -8521,6 +8528,112 @@ function islandBeachPoint(a, t) {
         x: wrapVal(islandCX() + ISLAND.rx * s * Math.cos(a), MAP_W),
         y: wrapVal(islandCY() + ISLAND.ry * s * Math.sin(a), MAP_H)
     };
+}
+// 涌浪每帧重算的采样点缓冲（碎沫带外缘 / 浪唇外缘 / 浪唇内缘 / 破碎程度）。
+// 放在函数外复用，避免每帧重新分配十几 KB 的数组。
+const WAV_N = 640;
+const WAV_FRO = new Float64Array(WAV_N + 1), WAV_FROY = new Float64Array(WAV_N + 1);
+const WAV_OUT = new Float64Array(WAV_N + 1), WAV_OUTY = new Float64Array(WAV_N + 1);
+const WAV_IN = new Float64Array(WAV_N + 1), WAV_INY = new Float64Array(WAV_N + 1);
+const WAV_F = new Float32Array(WAV_N + 1);
+// 两条轮廓围出的闭合环带（外圈正走、内圈倒着走），用来填出浪唇 / 碎沫带
+function ringPath(ox, oy, ix, iy) {
+    ctx.moveTo(ox[0], oy[0]);
+    for (let i = 1; i <= WAV_N; i++) ctx.lineTo(ox[i], oy[i]);
+    for (let i = WAV_N; i >= 0; i--) ctx.lineTo(ix[i], iy[i]);
+    ctx.closePath();
+}
+// ---------- 石柱阵范围内的杂草 ----------
+// 三种形态：细叶 / 矮丛 / 带小花。画在地面层（drawIslandGround 里），
+// 因此石柱、飞船、人物都照常压在它上面，遮挡关系与其它地面景物一致。
+function buildColonnadeWeeds() {
+    const out = [];
+    const r = world.ring;
+    if (!r) return out;
+    // 两艘飞船的停机坪留空：火箭 / 圈心传送门，以及右下方的补给航天飞船
+    const clear = [
+        { x: world.rocket.x, y: world.rocket.y - 46, rx: 138, ry: 182 },
+        { x: world.supply.x, y: world.supply.y - 34, rx: 122, ry: 98 }
+    ];
+    const CELL = 108;
+    for (let gy = -r.rY; gy <= r.rY; gy += CELL) {
+        for (let gx = -r.rX; gx <= r.rX; gx += CELL) {
+            const x = wrapVal(r.x + gx + rand(-CELL * 0.7, CELL * 0.7), MAP_W);
+            const y = wrapVal(r.y + gy + rand(-CELL * 0.7, CELL * 0.7), MAP_H);
+            const ex = dX(r.x, x) / r.rX, ey = dY(r.y, y) / r.rY;
+            if (ex * ex + ey * ey > 1) continue;
+            let hit = false;
+            for (let z = 0; z < clear.length; z++) {
+                const q = clear[z];
+                const dx = dX(q.x, x) / q.rx, dy = dY(q.y, y) / q.ry;
+                if (dx * dx + dy * dy < 1) { hit = true; break; }
+            }
+            if (hit) continue;
+            const v = Math.random();
+            out.push({
+                x: x, y: y, seed: Math.random(), s: rand(0.82, 1.25),
+                kind: v < 0.44 ? 0 : (v < 0.78 ? 1 : 2),
+                col: pick(['#5c8740', '#6b964a', '#4f7a38', '#77a552', '#436b31']),
+                fcol: pick(['#f2e489', '#ecc4d6', '#e9f2c8'])
+            });
+        }
+    }
+    return out;
+}
+function drawColonnadeWeeds() {
+    const ws = world.weeds;
+    if (!ws) return;
+    const t = world.t;
+    ctx.save();
+    ctx.lineCap = 'round';
+    for (let i = 0; i < ws.length; i++) {
+        const w = ws[i];
+        const sx = scrX(w.x), sy = scrY(w.y);
+        if (sx < -18 || sx > W + 18 || sy < -18 || sy > PLAY_H + 18) continue;
+        const sway = Math.sin(t * 1.15 + w.seed * 6.283) * 1.7;
+        const s = w.s;
+        ctx.strokeStyle = w.col;
+        if (w.kind === 0) {
+            // 细叶：三根长短不一的窄叶
+            ctx.lineWidth = 1.5;
+            for (let k = -1; k <= 1; k++) {
+                const h = (10 + ((k + w.seed * 3) | 0 % 3) * 5) * s;
+                ctx.beginPath();
+                ctx.moveTo(sx + k * 3.4, sy);
+                ctx.quadraticCurveTo(sx + k * 3.4 + sway * 0.5, sy - h * 0.6,
+                    sx + k * 3.4 + sway + k * 2.2, sy - h);
+                ctx.stroke();
+            }
+        } else if (w.kind === 1) {
+            // 矮丛：五片短叶挤成一簇
+            ctx.lineWidth = 1.7;
+            for (let k = 0; k < 5; k++) {
+                const a = (-1.0 + k * 0.5) + (w.seed - 0.5) * 0.4;
+                const h = (6 + (k % 3) * 3) * s;
+                ctx.beginPath();
+                ctx.moveTo(sx, sy);
+                ctx.quadraticCurveTo(sx + Math.sin(a) * h * 0.6, sy - Math.cos(a) * h * 0.7,
+                    sx + Math.sin(a) * h + sway * 0.7, sy - Math.cos(a) * h);
+                ctx.stroke();
+            }
+        } else {
+            // 长叶带小花：两根高叶 + 顶端一点花
+            ctx.lineWidth = 1.6;
+            for (let k = -1; k <= 1; k += 2) {
+                const h = (14 + w.seed * 7) * s;
+                ctx.beginPath();
+                ctx.moveTo(sx + k * 2, sy);
+                ctx.quadraticCurveTo(sx + k * 2 + sway * 0.6, sy - h * 0.6,
+                    sx + k * 2.6 + sway * 1.4, sy - h);
+                ctx.stroke();
+            }
+            ctx.fillStyle = w.fcol;
+            ctx.beginPath();
+            ctx.arc(sx + sway * 1.4, sy - (16 + w.seed * 6) * s, 1.9, 0, TAU);
+            ctx.fill();
+        }
+    }
+    ctx.restore();
 }
 
     // ---------- 地面绘制：大海 → 沙滩 → 草地 → 涌浪冲滩 → 贝壳螃蟹 ----------
@@ -8701,122 +8814,113 @@ function islandBeachPoint(a, t) {
             }
         }
         ctx.restore();
+        // 石柱阵范围内的杂草（地面层：石柱 / 飞船 / 人物照常压在它上面）
+        drawColonnadeWeeds();
 
-        // ---------- 5) 涌浪：推近 → 在水线破碎 → 冲上沙滩 → 退回海里 ----------
-        // 三列浪的相位沿岸线错开（- a * 0.115），整圈海岸的浪是一波波推过去的，不会齐步走
+        // ---------- 5) 涌浪：整圈同时出现 → 推近 → 在水线破碎 → 冲上沙滩 → 退回海里 ----------
+        // 相位只跟时间有关、跟沿岸位置无关：一整圈浪线是同一时刻一起出现、一起向岸边推进的。
+        // 早先沿岸线错开相位（一个点绕着岛划一圈），浪线就得绕岛走一圈才连得起来，既慢又假，
+        // 还会把闭合轮廓在两处回绕上撕出长条。现在去掉错相，回绕的隐患也一并消失。
         const WAVES = [
-            { per: 4.6, far: 250, run: 134, sk: 0.00 },
-            { per: 6.5, far: 350, run: 94, sk: 0.31 },
-            { per: 9.0, far: 460, run: 58, sk: 0.63 }
+            { per: 5.2, far: 250, run: 134, sk: 0.00 },
+            { per: 7.3, far: 350, run: 94, sk: 0.31 },
+            { per: 10.0, far: 460, run: 58, sk: 0.63 }
         ];
-        const NW = 400;                 // 浪头采样段数：逐段描线，断续与宽度才吃得到每一段的破碎程度
-        let wO = 0, wF = 0;             // 当前采样点的浪位（像素，负数为冲上沙滩）与泡沫浓度
-        // 某列浪在角度 a 处的浪位与泡沫浓度，结果写进 wO / wF（每个采样点都建对象太浪费）
-        function waveK(k, a) {
+        const NW = WAV_N;               // 浪头采样段数：浪唇改成整条渐变带填出来，采样不够密就会走成折角
+        let wO = 0, wF = 0;             // 当前这一列浪的浪位（像素，负数为冲上沙滩）与泡沫浓度
+        // 首尾都归零、导数也归零的缓动。三个阶段全用它，浪位与速度在接缝处就都是连续的，
+        // 既不会出现「刚冲上滩就突然弹回海」的突兀加速，首尾两个速度为零的端点也正好藏住一次生灭。
+        function sstep(x) { return x * x * (3 - 2 * x); }
+        // 某一列浪此刻的浪位与泡沫浓度，结果写进 wO / wF
+        function waveK(k) {
             const w = WAVES[k];
-            const u = ((t / w.per - a * 0.115 + w.sk) % 1 + 1) % 1;
+            const u = (t / w.per + w.sk) % 1;
             if (u < 0.5) {
-                const p = u / 0.5, q = p * p;
-                wO = lerp(w.far, 0, q); wF = q * (0.45 + 0.55 * p) * 0.9;
-            } else if (u < 0.76) {
-                const p = (u - 0.5) / 0.26;
-                wO = -w.run * Math.sin(p * Math.PI * 0.5); wF = 1 - p * 0.3;
+                const p = sstep(u / 0.5);
+                wO = w.far * (1 - p); wF = p;
+            } else if (u < 0.74) {
+                const q = (u - 0.5) / 0.24;
+                wO = -w.run * sstep(q); wF = 1 - q * 0.3;
             } else {
-                const q = 1 - (u - 0.76) / 0.24;
-                wO = -w.run * q * q; wF = q * q * 0.75;
+                const s = sstep((u - 0.74) / 0.26);
+                wO = -w.run * (1 - s); wF = 0.7 * (1 - s);
             }
         }
         // 浪头轮廓：底色压在水线 + 浪位移上，再叠三层破碎时张开的扇贝形起伏。
-        // 起伏的周期要按岸线周长来配 —— 岸线一圈一万多像素，低频只会把泡沫画成一道光滑的白笔；
-        // 高频又不能给足采样点，否则轮廓会走成折线。ph 给外沿换个相位，两条边才不像同一个模子刻的。
-        function crestR(k, a, o, f, m, ph) {
-            const wob = (Math.sin(a * 27 + k * 1.7 + t * 3.1 + ph) * 5
-                + Math.sin(a * 59 - k * 1.3 + t * 4.6 + ph) * 6
-                + Math.sin(a * 130 + k * 2.1 + t * 7.4 + ph) * 2.4) * (0.25 + f * 1.25) * m;
+        // 起伏周期按岸线周长来配（岸线一圈一万多像素，低频只会画成一道光滑的白笔），
+        // 同时必须留在采样率的两倍以内，否则轮廓会走成锯齿折线。
+        function crestR(k, a, o, f) {
+            const wob = (Math.sin(a * 21 + k * 1.7 + t * 3.1) * 5
+                + Math.sin(a * 47 - k * 1.3 + t * 4.6) * 5.5
+                + Math.sin(a * 83 + k * 2.1 + t * 7.4) * 3) * (0.25 + f * 1.25);
             return islandShore(a) + (tide + o + wob) / islandScale(a);
         }
-        // 一列浪的采样结果：内沿（贴岸那道亮唇）、外沿（碎沫带的外缘）、破碎程度
-        const crestX = new Float64Array(NW + 1), crestY = new Float64Array(NW + 1);
-        const frothX = new Float64Array(NW + 1), frothY = new Float64Array(NW + 1);
-        const frothF = new Float32Array(NW + 1);
         ctx.save();
         ctx.lineCap = 'round';
         for (let k = 0; k < WAVES.length; k++) {
             // 冲滩水层：浪头越过水线后在沙滩上铺开的一层薄水，退水时跟着一起收回；
             // 浪还没到的方位水层自然收成零宽，于是水边是一条有弧度的月牙
-            bandOf(offOf(islandShore, tide + 5), function (a) {
-                waveK(k, a);
+            const swOut = offOf(islandShore, tide + 5);
+            const swIn = function (a) {
                 return islandShore(a) + (tide + (wO < 0 ? wO : 0)) / islandScale(a);
-            });
+            };
+            bandOf(swOut, swIn);
             ctx.fillStyle = 'rgba(198,238,250,0.24)';
             ctx.fill();
+            // 描边把外沿和内沿分开各描一圈：直接描闭合环带的话，接缝处会多出一段横切色带
+            // 的短边，也就是那道垂直于海岸线的细线
             ctx.strokeStyle = 'rgba(238,252,255,0.30)';
             ctx.lineWidth = 2;
+            pathOf(swOut, 0, TAU, N);
             ctx.stroke();
-            // 采样这一列浪的轮廓：碎沫带越宽、浪唇起伏越大，都是破碎程度的函数
+            pathOf(swIn, 0, TAU, N);
+            ctx.stroke();
+            // 采样这一列浪：浪唇的半宽与碎沫带的宽度都随破碎程度连续变化
+            waveK(k);
+            const o0 = wO, f0 = wF;
             for (let i = 0; i <= NW; i++) {
                 const a = i / NW * TAU;
-                waveK(k, a);
-                frothF[i] = wF;
-                const fw = wF * 36;
-                let rr = crestR(k, a, wO + fw, wF, 1.25, 1.9);
-                frothX[i] = cx + rx * rr * Math.cos(a); frothY[i] = cy + ry * rr * Math.sin(a);
-                rr = crestR(k, a, wO, wF, 1, 0);
-                crestX[i] = cx + rx * rr * Math.cos(a); crestY[i] = cy + ry * rr * Math.sin(a);
+                const sc = islandScale(a), ca = Math.cos(a), sa = Math.sin(a);
+                const rc = crestR(k, a, o0, f0);
+                const hw = (1.4 + f0 * 5.2) / sc;             // 浪唇半宽
+                WAV_OUT[i] = cx + rx * (rc + hw) * ca; WAV_OUTY[i] = cy + ry * (rc + hw) * sa;
+                WAV_IN[i] = cx + rx * (rc - hw) * ca; WAV_INY[i] = cy + ry * (rc - hw) * sa;
+                // 碎沫带再往外铺开一截，边缘多叠一层更碎的起伏
+                const ro = rc + hw + (3 + f0 * 30) / sc + Math.sin(a * 71 + t * 5.3 + k) * 5 / sc;
+                WAV_FRO[i] = cx + rx * ro * ca; WAV_FROY[i] = cy + ry * ro * sa;
+                WAV_F[i] = f0;
             }
-            // 碎沫带：一整条半透明白，边缘破碎，是浪花翻滚的那团体积
+            // 碎沫带：浪唇外侧那团体积的翻滚白水
             ctx.beginPath();
-            ctx.moveTo(frothX[0], frothY[0]);
-            for (let i = 1; i <= NW; i++) ctx.lineTo(frothX[i], frothY[i]);
-            for (let i = NW; i >= 0; i--) ctx.lineTo(crestX[i], crestY[i]);
-            ctx.closePath();
-            ctx.fillStyle = 'rgba(236,250,255,0.16)';
+            ringPath(WAV_FRO, WAV_FROY, WAV_OUT, WAV_OUTY);
+            ctx.fillStyle = 'rgba(236,250,255,0.15)';
             ctx.fill();
-            // 靠浪唇的那半边再压一层白：白浪越靠近前缘越浓，碎沫带才不是一块均质的灰白
+            // 浪唇：整条填出来的泡沫带，宽度连续渐变 —— 不再逐段描线，
+            // 所以既不会一段粗一段细，也不会出现断口；破碎得越轻，带子越窄直至化开
             ctx.beginPath();
-            for (let i = 0; i <= NW; i++) {
-                const x = frothX[i] + (crestX[i] - frothX[i]) * 0.45;
-                const y = frothY[i] + (crestY[i] - frothY[i]) * 0.45;
-                if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
-            }
-            for (let i = NW; i >= 0; i--) ctx.lineTo(crestX[i], crestY[i]);
-            ctx.closePath();
-            ctx.fillStyle = 'rgba(255,255,255,0.14)';
+            ringPath(WAV_OUT, WAV_OUTY, WAV_IN, WAV_INY);
+            ctx.fillStyle = 'rgba(250,254,255,0.52)';
             ctx.fill();
-            // 浪唇：逐段描，浓的地方连成片、淡的地方断开，泡沫才有颗粒感
-            for (let i = 0; i < NW; i++) {
-                const f = frothF[i];
-                if (f < 0.12) continue;
-                if (hash2(i * 1.7 + k * 5.3, i * 0.9 + k) < 0.34 * (1 - f)) continue;
-                ctx.beginPath();
-                ctx.moveTo(crestX[i], crestY[i]);
-                ctx.lineTo(crestX[i + 1], crestY[i + 1]);
-                ctx.strokeStyle = 'rgba(250,254,255,' + (0.10 + f * 0.55).toFixed(3) + ')';
-                ctx.lineWidth = 1.5 + f * 5.5;
-                ctx.stroke();
-            }
-            // 破碎最盛的那几段，前面再甩出一层更薄更碎的沫
-            for (let i = 0; i < NW; i++) {
-                const f = frothF[i];
-                if (f < 0.7 || hash2(i * 3.1 + k, i * 2.3) < 0.45) continue;
-                ctx.beginPath();
-                ctx.moveTo(frothX[i], frothY[i]);
-                ctx.lineTo(crestX[i], crestY[i]);
-                ctx.strokeStyle = 'rgba(244,253,255,' + (f * 0.30).toFixed(3) + ')';
-                ctx.lineWidth = 1.1;
-                ctx.stroke();
-            }
+            // 浪唇外缘的亮边：整条描一圈（首尾同点，不 closePath）
+            ctx.beginPath();
+            ctx.moveTo(WAV_OUT[0], WAV_OUTY[0]);
+            for (let i = 1; i <= NW; i++) ctx.lineTo(WAV_OUT[i], WAV_OUTY[i]);
+            ctx.strokeStyle = 'rgba(255,255,255,0.5)';
+            ctx.lineWidth = 1.3;
+            ctx.stroke();
             // 泡沫里的气泡：碎沫带上零星几个亮点，一整条才不是一块均质的白
-            for (let i = 0; i < NW; i += 7) {
-                const f = frothF[i];
-                if (f < 0.35) continue;
-                const h1 = hash2(i * 2.9 + k * 3, i * 1.7);
-                const h2 = hash2(i * 5.1, i * 4.3 + k);
-                const mxp = (frothX[i] + crestX[i]) * 0.5, myp = (frothY[i] + crestY[i]) * 0.5;
-                ctx.fillStyle = 'rgba(255,255,255,' + (0.16 + h1 * 0.4).toFixed(3) + ')';
-                ctx.beginPath();
-                ctx.arc(mxp + (h1 - 0.5) * 26, myp + (h2 - 0.5) * 22, 1 + h2 * 3.2, 0, TAU);
-                ctx.fill();
+            if (f0 > 0.32) {
+                for (let i = 0; i < NW; i += 11) {
+                    const h1 = hash2(i * 2.9 + k * 3, i * 1.7);
+                    const h2 = hash2(i * 5.1, i * 4.3 + k);
+                    const mid = 0.3 + h1 * 0.5;
+                    const mx = WAV_OUT[i] + (WAV_FRO[i] - WAV_OUT[i]) * mid;
+                    const my = WAV_OUTY[i] + (WAV_FROY[i] - WAV_OUTY[i]) * mid;
+                    ctx.fillStyle = 'rgba(255,255,255,' + (0.12 + h2 * 0.32).toFixed(3) + ')';
+                    ctx.beginPath();
+                    ctx.arc(mx, my, 1 + h2 * 3, 0, TAU);
+                    ctx.fill();
+                }
             }
         }
         ctx.restore();
@@ -8836,38 +8940,58 @@ function islandBeachPoint(a, t) {
             }
         }
     }
-    // 贝壳：半开的扇形 + 放射纹
+    // 贝壳：扇形（像一枚摊开的扇贝），底端收成扇柄，外缘带扇贝状起伏，里面是放射肋
     function drawBeachShell(b) {
+        const R = 8.6;                  // 扇形半径
+        const SPAN = 2.25;              // 张角
+        const a0 = -Math.PI / 2 - SPAN / 2, a1 = -Math.PI / 2 + SPAN / 2;
+        const hx = 0, hy = 4.6;         // 扇柄（顶点）
+        const SEG = 9;                  // 外缘分段
+        // 外缘半径：三段缓慢起伏，做出扇贝壳那种一鼓一鼓的边
+        function edgeR(u) { return R * (0.88 + 0.12 * Math.abs(Math.sin(u * Math.PI * 3))); }
         ctx.save();
         ctx.rotate(b.rot);
         ctx.fillStyle = 'rgba(60,44,30,0.16)';
         ctx.beginPath();
         ctx.ellipse(1, 1.5, 8, 5.5, 0, 0, TAU);
         ctx.fill();
-        ctx.fillStyle = b.tint;
+        // 扇形本体
         ctx.beginPath();
-        ctx.moveTo(-7.5, 3);
-        ctx.arc(0, 3, 7.8, Math.PI, 0);
+        ctx.moveTo(hx, hy);
+        for (let i = 0; i <= SEG; i++) {
+            const u = i / SEG, a = a0 + (a1 - a0) * u, rr = edgeR(u);
+            ctx.lineTo(hx + Math.cos(a) * rr, hy + Math.sin(a) * rr);
+        }
         ctx.closePath();
+        ctx.fillStyle = b.tint;
         ctx.fill();
         ctx.strokeStyle = 'rgba(120,92,64,0.55)';
         ctx.lineWidth = 0.8;
         ctx.stroke();
+        // 放射肋：从扇柄往外缘张开
         ctx.strokeStyle = 'rgba(255,255,255,0.5)';
         ctx.lineWidth = 0.9;
-        for (let i = -2; i <= 2; i++) {
+        for (let i = 1; i < SEG; i++) {
+            const u = i / SEG, a = a0 + (a1 - a0) * u, rr = edgeR(u) - 0.9;
             ctx.beginPath();
-            ctx.moveTo(0, 3);
-            ctx.lineTo(Math.sin(i * 0.42) * 7.4, 3 - Math.cos(i * 0.42) * 6.6);
+            ctx.moveTo(hx, hy);
+            ctx.lineTo(hx + Math.cos(a) * rr, hy + Math.sin(a) * rr);
             ctx.stroke();
         }
+        // 扇柄
+        ctx.fillStyle = 'rgba(120,92,64,0.35)';
+        ctx.beginPath();
+        ctx.ellipse(hx, hy - 0.4, 1.6, 2.6, 0, 0, TAU);
+        ctx.fill();
         ctx.restore();
     }
-    // 螃蟹：会在沙上小幅度横着挪动
+    // 螃蟹：在沙上慢慢横着来回挪，走一段再换个方向
     function drawBeachCrab(b, t) {
-        const sc = Math.sin(t * 0.9 + b.seed) * 2.4;
+        const dir = Math.sin(t * 0.06 + b.seed * 3.1) >= 0 ? 1 : -1;   // 约每 50 秒换一次走向
+        const sc = Math.sin(t * 0.40 + b.seed * 5.7) * 7.5 * dir;     // 摆动周期约 15 秒
+        const bob = Math.sin(t * 1.8 + b.seed) * 0.8;
         ctx.save();
-        ctx.translate(sc, Math.sin(t * 1.8 + b.seed) * 0.8);
+        ctx.translate(sc, bob);
         ctx.fillStyle = 'rgba(60,30,20,0.18)';
         ctx.beginPath();
         ctx.ellipse(1, 3, 7.6, 3.4, 0, 0, TAU);
@@ -9012,10 +9136,13 @@ function islandBeachPoint(a, t) {
         };
     }
     // 沙滩上的贝壳 / 螃蟹
+    // 沿岸线等分成 n 段，每段里再随机取一点：岛放大后岸线一圈一万多像素，
+    // 数量又压得很低，纯随机很容易连着几只在同一小片沙滩上，段内取点就不会挤成一堆
     function buildBeachProps() {
         const out = [];
-        for (let i = 0; i < ISLAND.shells; i++) {
-            const a = rand(0, TAU);
+        const n = ISLAND.shells;
+        for (let i = 0; i < n; i++) {
+            const a = (i + rand(0.12, 0.88)) / n * TAU;
             const pt = islandBeachPoint(a, Math.random() * 0.7 + 0.15);
             const crab = Math.random() < 0.38;
             out.push({
@@ -9187,6 +9314,8 @@ function islandBeachPoint(a, t) {
         // 地球是一座岛：沙滩 / 海浪 / 贝壳蟹虾 / 漂流瓶
         world.island = true;
         world.beachProps = buildBeachProps();
+        // 石柱阵圈内的杂草（两艘飞船周围留空）
+        world.weeds = buildColonnadeWeeds();
         buildBottles();
     }
     // 地表禁植区：石柱阵 / 基地广场 / 火箭 / 补给飞船一带不长树
