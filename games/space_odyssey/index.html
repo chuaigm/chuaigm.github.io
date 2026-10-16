@@ -105,7 +105,7 @@
 (function() {
     'use strict';
 
-    const VERSION = '20261016-1703';
+    const VERSION = '20261016-2011';
 
     const canvas = document.getElementById('gameCanvas');
     const ctx = canvas.getContext('2d');
@@ -2283,7 +2283,10 @@ const PICKUP_BASE = 50;
     function newWorld(planetId, side) {
         const planet = planetId === 'moon' ? moonDef(side) : PLANET_BY_ID[planetId];
         // 月球两张图都只有正常的一半，且四面都不环绕；行星维持原来的尺寸与环接
+        // 地球是一座放大到两倍大的岛，四周要留足一圈海水，地图也跟着放大一倍：
+        // 否则岛的南北海岸会在地图环接缝处贴到了一起，站在东岸能看见西岸的树漂在海上
         if (planet.moon) { MAP_W = MOON_MAP_W; MAP_H = MOON_MAP_H; MAP_BOUNDED = true; }
+        else if (planet.home) { MAP_W = MAP_W_BASE * 2; MAP_H = MAP_H_BASE * 2; MAP_BOUNDED = false; }
         else { MAP_W = MAP_W_BASE; MAP_H = MAP_H_BASE; MAP_BOUNDED = false; }
         const startX = MAP_W * 0.5;
         const startY = MAP_H * 0.62;
@@ -8470,7 +8473,9 @@ function bossLevelNeed() { return BOSS_LEVEL_BASE + world.bossKills; }
 // ==================== 地球：海岛 · 沙滩 · 漂流瓶 ====================
 // 岛的整体形状：极坐标下用四层正弦叠加扰动半径，边缘因此凸凹不规则；
 // 横竖半径不同（贴近十二柱星环的椭圆比例），整体看起来仍是一枚近似的圆岛。
-const ISLAND = { rx: 1480, ry: 1000, beach: 140, shells: 42 };
+// 长短径、沙滩宽度都放大到原来的两倍，沙滩上的贝壳螃蟹按面积同步加密；
+// 随之放大的还有整幅地球地图（见 newWorld），四周的海水足够宽，两岸不会在环接缝处撞上。
+const ISLAND = { rx: 2960, ry: 2000, beach: 280, shells: 150 };
 function islandCX() { return MAP_W * 0.5; }
 function islandCY() { return MAP_H * 0.62; }
 // 岸线半径系数（1 为基准，凸凹就来自这几层叠加）
@@ -8505,110 +8510,318 @@ function clampToIsland(o) {
     o.y = wrapVal(islandCY() + ny * k * ISLAND.ry, MAP_H);
 }
 // 沙滩上的某个随机点（t：0 内沿 → 1 水线）
+// 内沿 / 水线两侧各留出一段按像素算的余量：归一化半径的固定数值在岛放大后会越界，
+// 采样点直接跑到水里，这里统一换成像素宽度，与岛的尺寸无关。
 function islandBeachPoint(a, t) {
-    const s = lerp(islandSand(a) + 0.06, islandShore(a) - 0.05, t);
+    const w = ISLAND.beach;
+    const s0 = islandSand(a) + w * 0.20 / islandScale(a);
+    const s1 = islandShore(a) - w * 0.16 / islandScale(a);
+    const s = lerp(s0, s1, t);
     return {
         x: wrapVal(islandCX() + ISLAND.rx * s * Math.cos(a), MAP_W),
         y: wrapVal(islandCY() + ISLAND.ry * s * Math.sin(a), MAP_H)
     };
 }
 
-    // ---------- 地面绘制：大海 → 沙滩 → 草地 → 潮汐海浪 → 贝壳螃蟹 ----------
+    // ---------- 地面绘制：大海 → 沙滩 → 草地 → 涌浪冲滩 → 贝壳螃蟹 ----------
+    // 岛放大到两倍后，一圈岸线长得多了，湿痕 / 沙纹 / 泡沫全部改成「沿岸线参数化」绘制：
+    // 每样东西都只描述自己相对岸线偏移多少像素，岛再变大也不必重写。
     function drawIslandGround() {
         const cx = scrX(islandCX()), cy = scrY(islandCY());
         const rx = ISLAND.rx, ry = ISLAND.ry;
         const R = Math.max(rx, ry);
+        const t = world.t;
+        const B = ISLAND.beach;
+        const N = 240;                 // 岸线采样段数
+        const cam = world.cam;
+        // 屏幕上的可见世界范围（海面光点 / 沙粒按格子遍历，比逐个判屏幕快得多）
+        const vx0 = cam.x - W / 2 - 140, vx1 = cam.x + W / 2 + 140;
+        const vy0 = cam.y - PLAY_H / 2 - 140, vy1 = cam.y + PLAY_H / 2 + 140;
 
-        // 1) 大海：整屏铺满，海面由中心向外加深
-        const og = ctx.createRadialGradient(cx, cy, R * 0.72, cx, cy, R * 2.2 + 700);
-        og.addColorStop(0, '#2a6f9e');
-        og.addColorStop(0.35, '#1a5382');
-        og.addColorStop(0.75, '#113d64');
-        og.addColorStop(1, '#0a2a48');
-        ctx.fillStyle = og;
-        ctx.fillRect(0, 0, W, H);
-        // 海面波光：几道随时间缓慢漂移的横向亮带
-        ctx.save();
-        ctx.globalCompositeOperation = 'lighter';
-        for (let i = 0; i < 5; i++) {
-            const yy = cy - R + ((world.t * (7 + i * 3) + i * 640) % (R * 2.6)) - 60;
-            const gg = ctx.createLinearGradient(0, yy - 26, 0, yy + 26);
-            gg.addColorStop(0, 'rgba(120,200,240,0)');
-            gg.addColorStop(0.5, 'rgba(120,200,240,0.045)');
-            gg.addColorStop(1, 'rgba(120,200,240,0)');
-            ctx.fillStyle = gg;
-            ctx.fillRect(0, yy - 26, W, 52);
-        }
-        ctx.restore();
-
-        // 2) 近岸浅水：先沿岸线铺一层浅蓝，再让陆地盖住内侧一半
-        const N = 240;
-        function shorePath(getR) {
+        // 半径函数 → 屏幕路径。getR 给归一化半径，from/to 为弧度区间
+        function pathOf(getR, from, to, steps) {
             ctx.beginPath();
-            for (let i = 0; i <= N; i++) {
-                const a = i / N * TAU;
+            for (let i = 0; i <= steps; i++) {
+                const a = from + (to - from) * (i / steps);
                 const rr = getR(a);
                 const x = cx + rx * rr * Math.cos(a), y = cy + ry * rr * Math.sin(a);
                 if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
             }
+        }
+        function loopOf(getR) { pathOf(getR, 0, TAU, N); ctx.closePath(); }
+        // 岸线往外挪 px 像素的半径函数：正数往海里，负数往岛里
+        function offOf(getR, px) { return function (a) { return getR(a) + px / islandScale(a); }; }
+        // 两条轮廓围出的闭合环带（外圈正走、内圈倒着走），用来铺冲上沙滩的那层水
+        function bandOf(outer, inner) {
+            ctx.beginPath();
+            for (let i = 0; i <= N; i++) {
+                const a = i / N * TAU, rr = outer(a);
+                const x = cx + rx * rr * Math.cos(a), y = cy + ry * rr * Math.sin(a);
+                if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+            }
+            for (let i = N; i >= 0; i--) {
+                const a = i / N * TAU, rr = inner(a);
+                ctx.lineTo(cx + rx * rr * Math.cos(a), cy + ry * rr * Math.sin(a));
+            }
             ctx.closePath();
         }
+
+        // ---------- 1) 大海：整屏铺满，离岛心越远越深 ----------
+        const og = ctx.createRadialGradient(cx, cy, R * 0.72, cx, cy, R * 2.2 + 700);
+        og.addColorStop(0, '#2f75a3');
+        og.addColorStop(0.35, '#1c5484');
+        og.addColorStop(0.75, '#113d64');
+        og.addColorStop(1, '#0a2a48');
+        ctx.fillStyle = og;
+        // 铺得比画布大一圈：着陆 / 起飞镜头会把整幅场景缩到 0.525，海面要跟着铺满，
+        // 否则缩放区外面露出的还是 planet.ground 那块草地的颜色
+        ctx.fillRect(-W, -H, W * 3, H * 3);
+        // 外海的涌浪：几道很淡的宽色带慢慢横向漂移，给水面一点大尺度起伏
+        ctx.save();
+        ctx.globalCompositeOperation = 'lighter';
+        for (let i = 0; i < 4; i++) {
+            const yy = cy - R + ((t * (5 + i * 2.6) + i * 780) % (R * 3.1)) - 120;
+            const gg = ctx.createLinearGradient(0, yy - 42, 0, yy + 42);
+            gg.addColorStop(0, 'rgba(108,188,232,0)');
+            gg.addColorStop(0.5, 'rgba(108,188,232,0.036)');
+            gg.addColorStop(1, 'rgba(108,188,232,0)');
+            ctx.fillStyle = gg;
+            ctx.fillRect(0, yy - 42, W, 84);
+        }
+        ctx.restore();
+        // 海面阳光碎光：按世界坐标的格子撒点，每点各自闪（跟着镜头走，不会整体漂移）
+        const GS = 82;
+        for (let gy = Math.floor(vy0 / GS); gy <= Math.floor(vy1 / GS); gy++) {
+            for (let gx = Math.floor(vx0 / GS); gx <= Math.floor(vx1 / GS); gx++) {
+                for (let k = 0; k < 2; k++) {
+                    const h1 = hash2(gx * 3 + k * 7, gy * 5 + k), h2 = hash2(gx * 11 + k, gy * 13 + k * 3);
+                    const wx = gx * GS + h1 * GS, wy = gy * GS + h2 * GS;
+                    if (islandZone(wx, wy) !== 'sea') continue;
+                    const tw = Math.sin(t * (1.5 + h2 * 2.4) + h1 * 12.6);
+                    if (tw < 0.4) continue;
+                    const sx = scrX(wx), sy = scrY(wy);
+                    if (sx < -8 || sx > W + 8 || sy < -8 || sy > H + 8) continue;
+                    ctx.fillStyle = 'rgba(216,246,255,' + (0.5 * (tw - 0.4) / 0.6).toFixed(3) + ')';
+                    ctx.beginPath();
+                    ctx.ellipse(sx, sy, 2 + h1 * 3.4, 0.7 + h2 * 1.1, 0, 0, TAU);
+                    ctx.fill();
+                }
+            }
+        }
+
+        // ---------- 2) 近岸浅水：沿岸线一圈圈往外铺的青色，越远越淡 ----------
+        // 由宽到窄叠五道描边，代替原来那两道生硬的固定描边，近岸才有一层由深到浅的水色
         ctx.save();
         ctx.lineJoin = 'round';
-        shorePath(islandShore);
-        ctx.strokeStyle = 'rgba(122,214,255,0.22)'; ctx.lineWidth = 104; ctx.stroke();
-        ctx.strokeStyle = 'rgba(168,235,255,0.30)'; ctx.lineWidth = 46; ctx.stroke();
+        const SHALLOW = [[170, 0.050], [112, 0.082], [68, 0.120], [36, 0.180], [14, 0.280]];
+        for (let i = 0; i < SHALLOW.length; i++) {
+            loopOf(offOf(islandShore, SHALLOW[i][0]));
+            ctx.strokeStyle = 'rgba(146,224,255,' + SHALLOW[i][1].toFixed(3) + ')';
+            ctx.lineWidth = SHALLOW[i][0] * 1.05;
+            ctx.stroke();
+        }
         ctx.restore();
-        // 湿沙：贴近水线的一圈颜色稍深
-        shorePath(function (a) { return islandShore(a) - ISLAND.beach * 0.3 / islandScale(a); });
-        ctx.fillStyle = '#cbb083';
+
+        // ---------- 3) 沙滩：干沙 → 湿沙 → 沙纹 → 沙粒 ----------
+        // 潮位：水线本身一涨一落（像素），沙缘、湿痕与浪花都跟着它走
+        const tide = Math.sin(t * 0.5) * 11 + Math.sin(t * 0.19 + 1.7) * 7;
+        loopOf(offOf(islandShore, tide));
+        ctx.fillStyle = '#e7d7a4';
         ctx.fill();
-        shorePath(islandShore);
-        ctx.fillStyle = '#e6d6a6';
-        ctx.fill();
-        // 草地：从沙滩内沿开始
-        shorePath(islandSand);
+        // 湿沙：由宽到窄叠四道描边，靠 alpha 叠加出「越靠水线越深」的渐变
+        const wetW = B * 0.40 + tide * 0.75;
+        for (let i = 0; i < 4; i++) {
+            const w = wetW * (1 - i * 0.24);
+            loopOf(offOf(islandShore, tide - w * 0.5));
+            ctx.strokeStyle = 'rgba(160,128,80,' + (0.10 + i * 0.045).toFixed(3) + ')';
+            ctx.lineWidth = w;
+            ctx.stroke();
+        }
+        // 刚被浪抹过的那条亮边
+        loopOf(offOf(islandShore, tide - 5));
+        ctx.strokeStyle = 'rgba(255,247,218,0.40)';
+        ctx.lineWidth = 9;
+        ctx.stroke();
+        // 沙纹：风和退潮留下的细波纹，沿着岸线一圈圈排开，每圈还带一点角度起伏
+        for (let k = 0; k < 6; k++) {
+            const d = B * (0.32 + k * 0.098);
+            const ph = k * 1.7, al = 0.055 + 0.035 * Math.abs(Math.sin(ph));
+            loopOf(function (a) {
+                const wob = Math.sin(a * (7 + k * 2) + ph) * (5 + k * 1.7);
+                return islandShore(a) - (d + wob) / islandScale(a);
+            });
+            ctx.strokeStyle = 'rgba(138,108,62,' + al.toFixed(3) + ')';
+            ctx.lineWidth = 1.5 + k * 0.22;
+            ctx.stroke();
+        }
+        // 沙粒：疏密不匀的深浅小点，别让大片沙地太平
+        const SS = 54;
+        for (let gy = Math.floor(vy0 / SS); gy <= Math.floor(vy1 / SS); gy++) {
+            for (let gx = Math.floor(vx0 / SS); gx <= Math.floor(vx1 / SS); gx++) {
+                const h1 = hash2(gx * 5 + 1, gy * 7 + 3), h2 = hash2(gx * 13, gy * 17 + 2);
+                const wx = gx * SS + h1 * SS, wy = gy * SS + h2 * SS;
+                if (islandZone(wx, wy) !== 'sand') continue;
+                const sx = scrX(wx), sy = scrY(wy);
+                if (sx < -6 || sx > W + 6 || sy < -6 || sy > H + 6) continue;
+                const rr = 1 + h2 * 2.2;
+                ctx.fillStyle = h1 < 0.5 ? 'rgba(120,92,52,0.16)' : 'rgba(255,248,214,0.20)';
+                ctx.beginPath();
+                ctx.ellipse(sx, sy, rr, rr * 0.62, h1 * 3, 0, TAU);
+                ctx.fill();
+            }
+        }
+
+        // ---------- 4) 草地：沙滩内沿开始 ----------
+        loopOf(islandSand);
         ctx.fillStyle = '#4f7f46';
         ctx.fill();
-        // 草地与沙滩的交界：一圈深色草缘
-        ctx.strokeStyle = 'rgba(58,92,48,0.45)';
-        ctx.lineWidth = 5;
+        loopOf(islandSand);
+        ctx.strokeStyle = 'rgba(56,90,46,0.5)';
+        ctx.lineWidth = 6;
         ctx.stroke();
-        // 浪花刚刚打湿的那条白线
-        shorePath(islandShore);
-        ctx.strokeStyle = 'rgba(255,255,255,0.45)';
-        ctx.lineWidth = 2.6;
-        ctx.stroke();
-
-        // 3) 潮汐海浪：沿岸线一排排白浪，长边顺着岸线，随潮汐涨落并逐渐淡出
-        const NW = 96;
+        // 沙丘草：草缘上零星立着的一丛丛细草，风里轻轻摆
         ctx.save();
         ctx.lineCap = 'round';
-        for (let i = 0; i < NW; i++) {
-            const a = i / NW * TAU;
-            const S = islandShore(a);
-            const wx = islandCX() + rx * S * Math.cos(a), wy = islandCY() + ry * S * Math.sin(a);
-            const sx = scrX(wx), sy = scrY(wy);
-            if (sx < -60 || sx > W + 60 || sy < -60 || sy > PLAY_H + 60) continue;
-            let vx = rx * S * Math.cos(a), vy = ry * S * Math.sin(a);
-            const vl = Math.hypot(vx, vy) || 1;
-            vx /= vl; vy /= vl;
-            const tang = Math.atan2(vy, vx) + Math.PI / 2;      // 泡沫长边贴着岸线走
-            const tide = Math.sin(world.t * 1.15 + i * 0.44) * 9 + Math.sin(world.t * 0.53 + i * 0.17) * 6;
-            for (let k = 0; k < 3; k++) {
-                const off = 5 + k * 14 + tide * (1 - k * 0.35);
-                const al = (0.42 - k * 0.12) * (0.5 + 0.5 * Math.sin(world.t * 1.7 - i * 0.31 + k * 0.8));
-                if (al <= 0.02) continue;
-                ctx.strokeStyle = 'rgba(236,251,255,' + al.toFixed(3) + ')';
-                ctx.lineWidth = 2.8 - k * 0.7;
+        for (let i = 0; i < 170; i++) {
+            const a = i / 170 * TAU + 0.02;
+            const s = islandSand(a) + B * 0.06 / islandScale(a);
+            const sx = scrX(islandCX() + rx * s * Math.cos(a));
+            const sy = scrY(islandCY() + ry * s * Math.sin(a));
+            if (sx < -20 || sx > W + 20 || sy < -20 || sy > PLAY_H + 20) continue;
+            const h = hash2(i * 3, i * 7);
+            const sway = Math.sin(t * 1.25 + h * 6.28) * 1.7;
+            ctx.strokeStyle = h < 0.4 ? 'rgba(106,140,64,0.75)' : 'rgba(136,164,82,0.7)';
+            ctx.lineWidth = 1.4;
+            for (let k = -1; k <= 1; k++) {
                 ctx.beginPath();
-                ctx.ellipse(sx + vx * off, sy + vy * off, 15 + k * 5, 6 + k * 2, tang, -1.05, 1.05);
+                ctx.moveTo(sx + k * 3.2, sy);
+                ctx.quadraticCurveTo(sx + k * 3.2 + sway * 0.5, sy - 7,
+                    sx + k * 3.2 + sway * 1.2 + k * 1.4, sy - 11 - h * 6);
                 ctx.stroke();
             }
         }
         ctx.restore();
 
-        // 4) 沙滩上的贝壳与螃蟹
+        // ---------- 5) 涌浪：推近 → 在水线破碎 → 冲上沙滩 → 退回海里 ----------
+        // 三列浪的相位沿岸线错开（- a * 0.115），整圈海岸的浪是一波波推过去的，不会齐步走
+        const WAVES = [
+            { per: 4.6, far: 250, run: 134, sk: 0.00 },
+            { per: 6.5, far: 350, run: 94, sk: 0.31 },
+            { per: 9.0, far: 460, run: 58, sk: 0.63 }
+        ];
+        const NW = 400;                 // 浪头采样段数：逐段描线，断续与宽度才吃得到每一段的破碎程度
+        let wO = 0, wF = 0;             // 当前采样点的浪位（像素，负数为冲上沙滩）与泡沫浓度
+        // 某列浪在角度 a 处的浪位与泡沫浓度，结果写进 wO / wF（每个采样点都建对象太浪费）
+        function waveK(k, a) {
+            const w = WAVES[k];
+            const u = ((t / w.per - a * 0.115 + w.sk) % 1 + 1) % 1;
+            if (u < 0.5) {
+                const p = u / 0.5, q = p * p;
+                wO = lerp(w.far, 0, q); wF = q * (0.45 + 0.55 * p) * 0.9;
+            } else if (u < 0.76) {
+                const p = (u - 0.5) / 0.26;
+                wO = -w.run * Math.sin(p * Math.PI * 0.5); wF = 1 - p * 0.3;
+            } else {
+                const q = 1 - (u - 0.76) / 0.24;
+                wO = -w.run * q * q; wF = q * q * 0.75;
+            }
+        }
+        // 浪头轮廓：底色压在水线 + 浪位移上，再叠三层破碎时张开的扇贝形起伏。
+        // 起伏的周期要按岸线周长来配 —— 岸线一圈一万多像素，低频只会把泡沫画成一道光滑的白笔；
+        // 高频又不能给足采样点，否则轮廓会走成折线。ph 给外沿换个相位，两条边才不像同一个模子刻的。
+        function crestR(k, a, o, f, m, ph) {
+            const wob = (Math.sin(a * 27 + k * 1.7 + t * 3.1 + ph) * 5
+                + Math.sin(a * 59 - k * 1.3 + t * 4.6 + ph) * 6
+                + Math.sin(a * 130 + k * 2.1 + t * 7.4 + ph) * 2.4) * (0.25 + f * 1.25) * m;
+            return islandShore(a) + (tide + o + wob) / islandScale(a);
+        }
+        // 一列浪的采样结果：内沿（贴岸那道亮唇）、外沿（碎沫带的外缘）、破碎程度
+        const crestX = new Float64Array(NW + 1), crestY = new Float64Array(NW + 1);
+        const frothX = new Float64Array(NW + 1), frothY = new Float64Array(NW + 1);
+        const frothF = new Float32Array(NW + 1);
+        ctx.save();
+        ctx.lineCap = 'round';
+        for (let k = 0; k < WAVES.length; k++) {
+            // 冲滩水层：浪头越过水线后在沙滩上铺开的一层薄水，退水时跟着一起收回；
+            // 浪还没到的方位水层自然收成零宽，于是水边是一条有弧度的月牙
+            bandOf(offOf(islandShore, tide + 5), function (a) {
+                waveK(k, a);
+                return islandShore(a) + (tide + (wO < 0 ? wO : 0)) / islandScale(a);
+            });
+            ctx.fillStyle = 'rgba(198,238,250,0.24)';
+            ctx.fill();
+            ctx.strokeStyle = 'rgba(238,252,255,0.30)';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+            // 采样这一列浪的轮廓：碎沫带越宽、浪唇起伏越大，都是破碎程度的函数
+            for (let i = 0; i <= NW; i++) {
+                const a = i / NW * TAU;
+                waveK(k, a);
+                frothF[i] = wF;
+                const fw = wF * 36;
+                let rr = crestR(k, a, wO + fw, wF, 1.25, 1.9);
+                frothX[i] = cx + rx * rr * Math.cos(a); frothY[i] = cy + ry * rr * Math.sin(a);
+                rr = crestR(k, a, wO, wF, 1, 0);
+                crestX[i] = cx + rx * rr * Math.cos(a); crestY[i] = cy + ry * rr * Math.sin(a);
+            }
+            // 碎沫带：一整条半透明白，边缘破碎，是浪花翻滚的那团体积
+            ctx.beginPath();
+            ctx.moveTo(frothX[0], frothY[0]);
+            for (let i = 1; i <= NW; i++) ctx.lineTo(frothX[i], frothY[i]);
+            for (let i = NW; i >= 0; i--) ctx.lineTo(crestX[i], crestY[i]);
+            ctx.closePath();
+            ctx.fillStyle = 'rgba(236,250,255,0.16)';
+            ctx.fill();
+            // 靠浪唇的那半边再压一层白：白浪越靠近前缘越浓，碎沫带才不是一块均质的灰白
+            ctx.beginPath();
+            for (let i = 0; i <= NW; i++) {
+                const x = frothX[i] + (crestX[i] - frothX[i]) * 0.45;
+                const y = frothY[i] + (crestY[i] - frothY[i]) * 0.45;
+                if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+            }
+            for (let i = NW; i >= 0; i--) ctx.lineTo(crestX[i], crestY[i]);
+            ctx.closePath();
+            ctx.fillStyle = 'rgba(255,255,255,0.14)';
+            ctx.fill();
+            // 浪唇：逐段描，浓的地方连成片、淡的地方断开，泡沫才有颗粒感
+            for (let i = 0; i < NW; i++) {
+                const f = frothF[i];
+                if (f < 0.12) continue;
+                if (hash2(i * 1.7 + k * 5.3, i * 0.9 + k) < 0.34 * (1 - f)) continue;
+                ctx.beginPath();
+                ctx.moveTo(crestX[i], crestY[i]);
+                ctx.lineTo(crestX[i + 1], crestY[i + 1]);
+                ctx.strokeStyle = 'rgba(250,254,255,' + (0.10 + f * 0.55).toFixed(3) + ')';
+                ctx.lineWidth = 1.5 + f * 5.5;
+                ctx.stroke();
+            }
+            // 破碎最盛的那几段，前面再甩出一层更薄更碎的沫
+            for (let i = 0; i < NW; i++) {
+                const f = frothF[i];
+                if (f < 0.7 || hash2(i * 3.1 + k, i * 2.3) < 0.45) continue;
+                ctx.beginPath();
+                ctx.moveTo(frothX[i], frothY[i]);
+                ctx.lineTo(crestX[i], crestY[i]);
+                ctx.strokeStyle = 'rgba(244,253,255,' + (f * 0.30).toFixed(3) + ')';
+                ctx.lineWidth = 1.1;
+                ctx.stroke();
+            }
+            // 泡沫里的气泡：碎沫带上零星几个亮点，一整条才不是一块均质的白
+            for (let i = 0; i < NW; i += 7) {
+                const f = frothF[i];
+                if (f < 0.35) continue;
+                const h1 = hash2(i * 2.9 + k * 3, i * 1.7);
+                const h2 = hash2(i * 5.1, i * 4.3 + k);
+                const mxp = (frothX[i] + crestX[i]) * 0.5, myp = (frothY[i] + crestY[i]) * 0.5;
+                ctx.fillStyle = 'rgba(255,255,255,' + (0.16 + h1 * 0.4).toFixed(3) + ')';
+                ctx.beginPath();
+                ctx.arc(mxp + (h1 - 0.5) * 26, myp + (h2 - 0.5) * 22, 1 + h2 * 3.2, 0, TAU);
+                ctx.fill();
+            }
+        }
+        ctx.restore();
+
+        // ---------- 6) 沙滩上的贝壳与螃蟹 ----------
         const bp = world.beachProps;
         if (bp) {
             for (let i = 0; i < bp.length; i++) {
