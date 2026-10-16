@@ -105,7 +105,7 @@
 (function() {
     'use strict';
 
-    const VERSION = '20261015-1717';
+    const VERSION = '20261016-1115';
 
     const canvas = document.getElementById('gameCanvas');
     const ctx = canvas.getContext('2d');
@@ -163,14 +163,26 @@
     const FIRE_CD_MS = 1000;      // 基础开枪间隔（毫秒）
     const ROLL_TIME = 0.42;
     const ROLL_CD = 3.0;
-    const ROLL_DIST = CHAR_S * 3.1;
+    // 闪避距离 = 按下 K（手柄 B）后人物向当前方向滚动的距离
+    const ROLL_DIST_BASE = 150;           // 初始 150px（约 3.3 个身位）
+    const ROLL_DIST_STEP = 50;            // 每件「闪避增长」+50
+    // 普通翻滚撞到敌人：把对方弹开一个身位（同一只怪在一次翻滚里只弹一次）
+    const ROLL_PUSH_D = CHAR_S;
+    // 电锯翻滚：翻滚距离翻倍、取消弹开，改为对路径上的敌人造成攻击力 × N 的伤害
+    const CHAIN_ID = 'chain';
+    const CHAIN_DIST_MUL = 2;             // 翻滚距离 ×2
+    const CHAIN_BASE_MUL = 2;             // 首件：攻击力 ×2，之后每件再 +1 倍
+    const CHAIN_HIT_R = CHAR_S * 0.8;     // 路径判定半径：比贴身判定（0.4 身位）稍大
     const MAX_HP = 8;
     // 各项增益道具的固定增量：都按「基础值的百分之几」给，而不是在当前值上复利叠加
     const RATE_STEP = 0.10;             // 射速：每件降低基础射击间隔的 10%
     const RATE_MIN_MS = 70;             // 射击间隔下限
-    // 拾取范围：50px（约 1.1 身位），每个磁力线圈 +基础值的 50%
-    const PICKUP_BASE = 50;
-    const PICKUP_STEP = PICKUP_BASE * 0.5;
+// 拾取范围：初始 50px（约 1.1 身位），每个磁力线圈把「初始值」抬高 50%（按当时的初始值算）
+const PICKUP_BASE = 50;
+    // 物品类（补给箱 / 闪光信标 / 挖出的掉落物）统一的拾取半径：与补给箱的判定完全一致。
+    // 「拾取范围」这个技能数值只作用于经验球，不影响任何物品的拾取。
+    const PICKUP_ITEM_R = CHAR_S * 0.7;
+    const PICKUP_STEP_R = 0.5;
     const FIRE_RANGE = 200;             // 初始射击距离
     const FIRE_STEP = FIRE_RANGE * 0.15; // 每个远射瞄镜 +基础距离的 15%
     const SPEED_STEP = 0.15;            // 每个疾行靴 +基础速度的 15%
@@ -180,10 +192,6 @@
     const BOOM_STEP_R = 20;           // 重复拾取每次 +20 爆炸半径
     const BOOM_BLAST_WAIT = 0.12;     // 爆炸命中后延迟多久才结算范围伤害
     const BOOM_BLAST_LIFE = 0.34;     // 余波持续时长（这段时间里只有视觉表现）
-    // 闪避距离：主角周身的安全圈，进入圈的敌人会被顶回圈外（默认 0，靠道具堆叠）
-    const DODGE_BASE = 0;
-    const DODGE_REF = 100;           // 闪避距离的基准半径，每件道具固定 +20%
-    const DODGE_STEP = DODGE_REF * 0.2;
     const BOSS_LEVEL_BASE = 20;      // 首个 BOSS 的触发等级
     const HP_RING_TIME = 3.0;        // 血量环满显示时长
     const HP_RING_FADE = 0.9;        // 之后渐渐隐去的时长
@@ -194,6 +202,11 @@
     const PKG_TIME = 10.0;               // 装备箱选择时限（秒）
     const PKG_TIMER_R = 28;              // 选择倒计时圆环半径（紧贴头顶图标 26*0.95≈24.7）
     const BASE_DMG = 1;                  // 初始攻击力（不再随等级提升）
+    // 秘籍道具：战备栏固定栏上按对确认键顺序才会解锁的调试道具，只在本次运行有效（不写存档）
+    const CHEAT_ITEM_ID = 'cheat';
+    const CHEAT_DMG = 10;                    // 每件攻击力 +10（重复拾取也只加攻击力）
+    const CHEAT_AURA_CD = 1.0;               // 射程内的敌人每 1 秒吃一次伤害
+    const CHEAT_CODE = ['heart', 'dmg', 'shoes', 'scope', 'shoes', 'dmg', 'heart'];
 
     // ==================== 工具 ====================
     function clamp(v, a, b) { return v < a ? a : (v > b ? b : v); }
@@ -592,7 +605,7 @@
         };
     }
     function defaultSave() {
-        const s = { sound: true, touchUI: false, totalScore: 0, totalKills: 0, planets: {}, loadout: {}, gems: {}, relics: {} };
+        const s = { sound: true, touchUI: false, autoFire: true, totalScore: 0, totalKills: 0, planets: {}, loadout: {}, gems: {}, relics: {} };
         for (const p of savePlanetIds()) s.planets[p] = defaultPlanetRec();
         return s;
     }
@@ -606,6 +619,7 @@
             if (data && typeof data === 'object') {
                 if (typeof data.sound === 'boolean') base.sound = data.sound;
                 if (typeof data.touchUI === 'boolean') base.touchUI = data.touchUI;
+                if (typeof data.autoFire === 'boolean') base.autoFire = data.autoFire;
                 base.totalScore = data.totalScore | 0;
                 base.totalKills = data.totalKills | 0;
                 if (data.loadout && typeof data.loadout === 'object') base.loadout = data.loadout;
@@ -640,7 +654,18 @@
         return base;
     }
     function persist() {
-        try { window.localStorage.setItem(SAVE_KEY, JSON.stringify(save)); } catch (e) { }
+        try {
+            const out = JSON.parse(JSON.stringify(save));
+            // 秘籍道具只在本次运行里有效：不写进存档
+            if (out.loadout) {
+                for (const k in out.loadout) {
+                    const arr = out.loadout[k];
+                    if (!Array.isArray(arr)) continue;
+                    for (let i = 0; i < arr.length; i++) if (arr[i] === CHEAT_ITEM_ID) arr[i] = null;
+                }
+            }
+            window.localStorage.setItem(SAVE_KEY, JSON.stringify(out));
+        } catch (e) { }
     }
     let save = null;
 
@@ -815,7 +840,7 @@
     const ITEM_NAMES = {
         heart: '生命回复', shoes: '移速增加', magnet: '拾取扩大', dodge: '闪避增长',
         rate: '射速增加', multi: '子弹分裂', scope: '射程增加', dmg: '攻击增加',
-        rollcd: '闪避冷却', boom: '爆炸子弹'
+        rollcd: '闪避冷却', boom: '爆炸子弹', cheat: '神秘核心', chain: '电锯翻滚'
     };
 
     // ==================== 星球特色装备 / 星球宝石 ====================
@@ -843,7 +868,7 @@
     save = loadSave();
 
     // ==================== 信标 / 挖掘 ====================
-    const BEACON_DROP_RATE = 0.70;          // BOSS 被击杀后掉落信标的概率
+    const BEACON_DROP_RATE = 1;               // BOSS 被击杀后掉落信标的概率（100%，必定掉落）
     const DIG_CD = 2.0;                     // 挖掘冷却（与尘土特效同长，尘土散尽即可再挖）
     const DIG_FX = 2.0;                     // 尘土特效时长
     const DIG_HIT_R = PICKUP_BASE;          // 命中判定：站进隐藏道具的初始拾取范围内才算挖到
@@ -857,13 +882,14 @@
     const BEACON_DRIFT_R = 34;              // 自身漂移能到达的最大偏移
     // 漂移中心必须与方向判定的原点一致，否则连线方向会整体偏掉几十度。
     // 这里直接取人物身形中心（与 drawRangeRings 的圈心相同）。
-    const BEACON_POINT_R = PICKUP_BASE * 1.2;  // 微弱时信标停在「人物→埋藏点」连线上的距离（略大于初始拾取范围）
+    const BEACON_POINT_R = PICKUP_BASE * 1.7;  // 微弱时信标停在「人物中心→埋藏点」连线上的距离（拉得更开，离人物更远）
     const BEACON_POINT_JITTER = 0.16;       // 连线两侧允许的抖动弧度（±9°），小到不破坏指向性
-    const BEACON_STEP_D = PICKUP_BASE * 2;  // 信号每一级覆盖的距离：两个初始拾取范围
     const SIG_STEPS = 5;                    // 信号共分 5 级
+    // 每一级覆盖的距离：最近的一级维持原样（100px），其余各级逐级加大到 200 / 300 / 400 / 500
+    const SIG_STEP_DIST = [PICKUP_BASE * 2, PICKUP_BASE * 4, PICKUP_BASE * 6, PICKUP_BASE * 8, PICKUP_BASE * 10];
     const BEACON_WEAK_SIG = 0.5;            // 「一般」及更弱（≤0.5）时朝埋藏点方向漂
-    // 信标信号共 5 级，每级两个初始拾取范围（PICKUP_BASE * 2 = 100px）：
-    //   最强 0~100（平台，sig 恒为 1）· 清晰 100~200 · 较强 200~300 · 一般 300~400 · 微弱 ≥400
+    // 信标信号共 5 级，最近的一级保持不变，其余各级的范围进一步加大：
+    //   最强 0~100（平台，sig 恒为 1）· 清晰 100~300 · 较强 300~600 · 一般 600~1000 · 微弱 ≥1000
     const SIG_LEVELS = [
         { atLeast: 1.00, text: '信号最强', col: '#ffe066' },
         { atLeast: 0.75, text: '信号清晰', col: '#cbf79e' },
@@ -871,7 +897,9 @@
         { atLeast: 0.25, text: '信号一般', col: '#b9c5d4' },
         { atLeast: -1,   text: '信号微弱', col: '#9aa6b6' }
     ];
-    const FIND_HOP_R = CHAR_S * 2;           // 挖出的东西跳到人物附近的距离（两个身位）
+    const FIND_HOP_R = CHAR_S * 2;           // 挖出的东西跳到人物附近的基准距离（两个身位）
+    // 落点区间：0.9~1.4 倍基准，保证不会直接掉在人物身上
+    const FIND_HOP_MIN_R = FIND_HOP_R * 0.9, FIND_HOP_MAX_R = FIND_HOP_R * 1.4;
     const ORB_LIFE = 60;                    // 经验球落地后多久消失（秒）
     const ORB_BLINK = 5;                    // 经验球即将消失前的闪烁提示时长
     const BOSS_WARN_TIME = 1.0;             // BOSS 技能发动前的范围预警时长
@@ -1058,6 +1086,9 @@
     function menuBack() { return edge.KeyK || pad.bEdge; }
     function actPress() { return edge.KeyJ || pad.aEdge; }
     function rollPress() { return edge.KeyK || pad.bEdge; }
+    // 是否允许自动射击：战备栏开关开着就一直是自动射击；
+    // 关掉之后必须按住 J / 手柄 A 才会继续朝最近的敌人开火
+    function fireReady() { return save.autoFire !== false || held.KeyJ || pad.a; }
     // 操作提示
     function hintConfirm() { return padConnected ? 'A' : 'J'; }
     function hintBack() { return padConnected ? 'B' : 'K'; }
@@ -2265,11 +2296,13 @@
                 dirIdx: 4, moveDirIdx: 4, walkPhase: 0, moving: false,
                 faceSide: 1,              // 最近一次朝左 / 朝右的姿态（1=右，-1=左）
                 hp: MAX_HP, maxHp: MAX_HP,
-                speedMul: 1, pickupBonus: 0, dodge: 0, fireBonus: 0, fireCdMs: FIRE_CD_MS, bullets: 1, dmg: BASE_DMG,
+                speedMul: 1, pickupBonus: 0, dodgeLv: 0, fireBonus: 0, fireCdMs: FIRE_CD_MS, bullets: 1, dmg: BASE_DMG,
+                chainLv: 0,                             // 电锯翻滚的持有件数
+                cheat: 0, cheatPickup: 0, cheatCd: 0,   // 神秘核心：持有数、定格的拾取范围初始值、环绕伤害计时
                 rollCdMul: 1, boomLv: 0, relics: {},
                 weapon: 'pistol',
                 fireCd: 0, fireTimer: 0,
-                rollT: 0, rollCd: 0, rollAngle: 0, rollDir: 4, rollVX: 0, rollVY: 0,
+                rollT: 0, rollCd: 0, rollAngle: 0, rollDir: 4, rollVX: 0, rollVY: 0, rollId: 0,
                 invuln: 0, hitFlash: 0,
                 hpShown: MAX_HP, hpRing: 0,   // 血量环：hpShown 用于侦测血量变化，hpRing 是剩余显示时间
                 muzz: 0
@@ -2293,7 +2326,8 @@
             // quiet = 本局没有战斗（家园基地 / 月球正面）：凡是原来判断 planet.home 的地方都改看它
             quiet: !!(planet.home || (planet.moon && side !== 'far')),
             edgeHit: 0, fade: 0,
-            inv: { on: false, ai: 0, c: 0, r: 0, msg: '', msgT: 0 },
+            landed: -1,        // 火箭触地后经过的秒数（-1 = 还没触地）
+            inv: { on: false, ai: 0, c: 0, r: 0, sw: false, cheat: [], msg: '', msgT: 0 },
             recorded: false,
             over: false
         };
@@ -3390,23 +3424,27 @@ if (view.face === 'front') {
 
     // 翻滚姿态：四肢蜷成一团近似球体，球心与身形中心（BODY_OFF）重合；
     // 用「蜷起的四肢沿球面绕行 + 残影 + 速度线」表现翻滚，而不是旋转站姿图形
-    function drawRollBall(cx, cy, dirIdx, opts) {
+// 新的 drawRollBall：球体更大（约一个身位直径）、球体本身可见地自转、
+// 抱成一团的身体元素（双腿 / 背包 / 服装接缝）跟着一起转，头盔始终朝前；
+// 持有「电锯翻滚」时额外加一圈跟着转的锯齿外环。
+function drawRollBall(cx, cy, dirIdx, opts) {
         const t = opts.t || 0;
         const view = DIR_VIEW[dirIdx];
         const flip = view.sx < 0 ? -1 : 1;
         const d = DIRS[dirIdx];
         const fx = d.ix * flip, fy = d.iy;       // 翻滚方向在屏幕上的单位向量
-        const R = 19;
+        const chain = opts.chain || 0;
+        const R = 24;                           // 球径 ≈ 一个身位（CHAR_S = 46），贴合「团成球」的身形
         const prog = opts.rollProg === undefined ? 0.5 : clamp(opts.rollProg, 0, 1);
         const vis = clamp(prog / 0.18, 0, 1) * clamp((1 - prog) / 0.14, 0, 1);
-        const spin = (opts.rollAngle || 0) * 1.15;
+        const spin = (opts.rollAngle || 0) * 0.88;      // 自转速度（比原来略慢，要让人看出来是在滚）
 
         // 地面投影（球体腾空，影子略小）
         ctx.save();
         ctx.globalAlpha = 0.24 * vis;
         ctx.fillStyle = '#000000';
         ctx.beginPath();
-        ctx.ellipse(2, 3, 12, 4.6, 0, 0, TAU);
+        ctx.ellipse(2, 3, R * 0.66, R * 0.24, 0, 0, TAU);
         ctx.fill();
         ctx.restore();
 
@@ -3416,7 +3454,7 @@ if (view.face === 'front') {
             if (a < 0.005) continue;
             ctx.save();
             ctx.globalAlpha = a;
-            ctx.translate(cx - fx * i * 6.2, cy - fy * i * 6.2);
+            ctx.translate(cx - fx * i * 7.4, cy - fy * i * 7.4);
             ctx.rotate(Math.atan2(fy, fx));
             ctx.scale(1.12, 0.84);
             ctx.fillStyle = '#7cc9f2';
@@ -3436,7 +3474,7 @@ if (view.face === 'front') {
         ctx.lineCap = 'round';
         for (let i = 0; i < 7; i++) {
             const ang = Math.PI - 1.25 + i * (2.5 / 6);
-            const rr = R + 3 + (i % 3) * 4;
+            const rr = R + 4 + (i % 3) * 4;
             const al = (0.1 + 0.24 * vis) * (0.55 + 0.45 * Math.sin(t * 22 + i * 1.7));
             ctx.strokeStyle = 'rgba(150,225,255,' + al.toFixed(3) + ')';
             ctx.lineWidth = 1.6 + (i % 2) * 1.3;
@@ -3459,8 +3497,29 @@ if (view.face === 'front') {
         ctx.arc(0, 0, R, 0, TAU);
         ctx.fill();
 
+        // ---- 以下整组随球体自转：服装接缝 + 蜷起的双腿 + 背包 ----
+        ctx.save();
+        ctx.rotate(spin);
+
+        // 服装接缝：两道随自转移动的弧线 + 三个铆钉点，让「在滚」看得见
+        ctx.strokeStyle = 'rgba(120,138,166,0.42)';
+        ctx.lineWidth = 1.6;
+        ctx.beginPath();
+        ctx.arc(0, 0, R * 0.62, 0.35, 2.5);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.arc(0, 0, R * 0.86, 2.1, 4.4);
+        ctx.stroke();
+        ctx.fillStyle = 'rgba(108,126,154,0.5)';
+        for (let i = 0; i < 3; i++) {
+            const a = i * TAU / 3 + 0.9;
+            ctx.beginPath();
+            ctx.arc(Math.cos(a) * R * 0.62, Math.sin(a) * R * 0.62, 1.9, 0, TAU);
+            ctx.fill();
+        }
+
         // 蜷起的双腿：根部收在球心附近，鞋尖沿球面绕行
-        const at = (ang, rad) => ({ x: Math.cos(ang + spin) * rad, y: Math.sin(ang + spin) * rad });
+        const at = (ang, rad) => ({ x: Math.cos(ang) * rad, y: Math.sin(ang) * rad });
         const limbs = [
             { ang: 2.35, rad: R * 0.82, w: 8.6, knee: R * 0.5, boot: 1 },
             { ang: 3.95, rad: R * 0.76, w: 8.2, knee: R * 0.48, boot: 1 }
@@ -3487,7 +3546,7 @@ if (view.face === 'front') {
             ctx.fill();
             ctx.save();
             ctx.translate(p.x, p.y);
-            ctx.rotate(L.ang + spin + Math.PI / 2);
+            ctx.rotate(L.ang + Math.PI / 2);
             ctx.fillStyle = '#9da9bb';
             roundRectPath(-5.4, -0.4, 11, 3.6, 1.8);
             ctx.fill();
@@ -3514,15 +3573,20 @@ if (view.face === 'front') {
             ctx.restore();
         }
 
-        // 背包（露在头盔下方）
+        // 背包：跟着球体一起绕到侧面 / 背面，强化滚动感
+        ctx.save();
+        ctx.rotate(2.05);
+        ctx.translate(0, R * 0.42);
         ctx.fillStyle = '#7f8da3';
-        roundRectPath(-9.5, 1.5, 19, 13, 5.5);
+        roundRectPath(-9.5, -6.5, 19, 13, 5.5);
         ctx.fill();
         ctx.fillStyle = '#9aa7bb';
-        roundRectPath(-8, 3, 16, 5, 2.5);
+        roundRectPath(-8, -5, 16, 5, 2.5);
         ctx.fill();
+        ctx.restore();
+        ctx.restore();
 
-        // 头盔：始终朝翻滚方向，只有轻微晃动
+        // 头盔：始终朝翻滚方向，只有轻微晃动（不参与自转）
         const hw = -0.34 + Math.sin(spin * 2) * 0.11;
         ctx.save();
         ctx.translate(Math.cos(hw) * R * 0.44, Math.sin(hw) * R * 0.44);
@@ -3555,7 +3619,7 @@ if (view.face === 'front') {
         ctx.fill();
         ctx.restore();
 
-        // 球体边缘暗部 + 无敌光环
+        // 球体边缘暗部
         ctx.strokeStyle = 'rgba(88,106,134,0.55)';
         ctx.lineWidth = 1.6;
         ctx.beginPath();
@@ -3566,6 +3630,48 @@ if (view.face === 'front') {
         ctx.beginPath();
         ctx.arc(0, 0, R - 2.6, 1.5, 3.4);
         ctx.stroke();
+
+        // 电锯翻滚：外圈锯齿环，跟着球体转；件数越多锯齿越长
+        if (chain > 0) {
+            const teeth = 16;
+            const rIn = R + 1.2, rOut = R + 3.6 + Math.min(3, chain - 1) * 1.8;
+            ctx.save();
+            ctx.rotate(spin * 1.4 + t * 2.4);
+            for (let i = 0; i < teeth; i++) {
+                const a0 = i * TAU / teeth, a1 = a0 + TAU / teeth * 0.55;
+                ctx.fillStyle = i % 2 ? '#eef5ff' : '#b7c8de';
+                ctx.beginPath();
+                ctx.moveTo(Math.cos(a0) * rIn, Math.sin(a0) * rIn);
+                ctx.lineTo(Math.cos(a1 + 0.12) * rOut, Math.sin(a1 + 0.12) * rOut);
+                ctx.lineTo(Math.cos(a1) * rIn, Math.sin(a1) * rIn);
+                ctx.closePath();
+                ctx.fill();
+            }
+            ctx.strokeStyle = 'rgba(40,54,76,0.5)';
+            ctx.lineWidth = 1;
+            ctx.beginPath();
+            ctx.arc(0, 0, rIn, 0, TAU);
+            ctx.stroke();
+            ctx.restore();
+            // 锯齿甩出的火花
+            ctx.save();
+            ctx.rotate(spin * 1.4 + t * 2.4);
+            ctx.strokeStyle = 'rgba(255,214,120,' + (0.55 * vis).toFixed(3) + ')';
+            ctx.lineWidth = 1.7;
+            ctx.lineCap = 'round';
+            for (let i = 0; i < 5; i++) {
+                const a = i * TAU / 5;
+                const l = 4 + 4 * Math.abs(Math.sin(t * 9 + i * 1.7));
+                ctx.beginPath();
+                ctx.moveTo(Math.cos(a) * (rOut + 1), Math.sin(a) * (rOut + 1));
+                ctx.lineTo(Math.cos(a) * (rOut + 1 + l), Math.sin(a) * (rOut + 1 + l));
+                ctx.stroke();
+            }
+            ctx.lineCap = 'butt';
+            ctx.restore();
+        }
+
+        // 无敌光环
         const hGrad = ctx.createRadialGradient(0, 0, R * 0.88, 0, 0, R * 1.34);
         hGrad.addColorStop(0, 'rgba(140,230,255,0)');
         hGrad.addColorStop(0.6, 'rgba(140,230,255,' + (0.2 * vis).toFixed(3) + ')');
@@ -3584,13 +3690,18 @@ if (view.face === 'front') {
         { id: 'heart', name: ITEM_NAMES.heart, color: '#ff6b8a', desc: '立刻回复 1 点生命；生命已满则改为 +50 分数' },
         { id: 'shoes', name: ITEM_NAMES.shoes, color: '#5ad2a0', desc: '移动速度 +15%' },
         { id: 'magnet', name: ITEM_NAMES.magnet, color: '#7aa8e8', desc: '拾取范围 +25' },
-        { id: 'dodge', name: ITEM_NAMES.dodge, color: '#7ce0ff', desc: '闪避距离 +20' },
+        { id: 'dodge', name: ITEM_NAMES.dodge, color: '#7ce0ff', desc: '闪避距离 +50：按下 K（手柄 B）后向当前方向滚得更远' },
         { id: 'rate', name: ITEM_NAMES.rate, color: '#ffc857', desc: '射击间隔 -10%，最低 70 ms' },
         { id: 'multi', name: ITEM_NAMES.multi, color: '#c58cff', desc: '每次射击多打出 1 发子弹' },
         { id: 'dmg', name: ITEM_NAMES.dmg, color: '#ff5c5c', desc: '攻击力 +1' },
         { id: 'scope', name: ITEM_NAMES.scope, color: '#9fe0a8', desc: '射击距离 +30' },
         { id: 'rollcd', name: ITEM_NAMES.rollcd, color: '#dfe8f5', desc: '闪避冷却 -15%，最低为原值的 15%' },
-        { id: 'boom', name: ITEM_NAMES.boom, color: '#ff9f43', desc: '子弹命中时爆炸：首件解锁爆炸子弹，之后每件使爆炸范围 +20' }
+        { id: 'boom', name: ITEM_NAMES.boom, color: '#ff9f43', desc: '子弹命中时爆炸：首件解锁爆炸子弹，之后每件使爆炸范围 +20' },
+        {
+            id: CHAIN_ID, name: ITEM_NAMES[CHAIN_ID], color: '#cfe4ff',
+            desc: '翻滚距离翻倍；取消把敌人弹开的设定，改为对翻滚路径上的敌人造成当前攻击力 ×2 的伤害，重复拾取每件再加 1 倍'
+        },
+        { id: CHEAT_ITEM_ID, name: ITEM_NAMES[CHEAT_ITEM_ID], color: '#ffd24a', desc: '攻击力 +10；拾取范围立刻扩到当前的射击距离（此后射击距离再变也不会带动拾取范围，只有拾取类道具能继续加）；射程内的敌人每 1 秒自动受到一次伤害；重复拾取只加攻击力' }
     ].concat(RELICS.map((r) => ({
         id: r.item, name: r.name, color: r.col,
         desc: r.desc + '；冷却 ' + r.cd + ' 秒，重复拾取每次范围 +' + r.stepR
@@ -3605,7 +3716,8 @@ if (view.face === 'front') {
     // 各图标的自然绘制范围宽窄不一，这里统一缩放，保证视觉尺寸一致
     const ICON_SCALE = {
         heart: 0.96, shoes: 0.97, magnet: 1.10, dodge: 0.77,
-        rate: 0.72, multi: 0.72, dmg: 0.72, scope: 1.02, rollcd: 0.83, boom: 0.90
+        rate: 0.72, multi: 0.72, dmg: 0.72, scope: 1.02, rollcd: 0.83, boom: 0.90,
+        cheat: 1.02, chain: 1.0
     };
     // 道具图标共用的手枪侧视图：原点在套筒中心，枪口朝 +x
     function drawItemPistol(body, dark, light) {
@@ -4158,6 +4270,110 @@ if (view.face === 'front') {
                 ctx.fill();
                 break;
             }
+            case CHEAT_ITEM_ID: {
+                // 秘籍核心：金色核心 + 两圈光环 + 四枚环绕的小卫星（拾取 / 射程 / 环绕伤害的合体示意）
+                const g = ctx.createRadialGradient(0, 0, 1, 0, 0, 20);
+                g.addColorStop(0, '#ffffff');
+                g.addColorStop(0.34, '#ffd977');
+                g.addColorStop(1, 'rgba(0,0,0,0)');
+                ctx.fillStyle = g;
+                ctx.beginPath();
+                ctx.arc(0, 0, 19, 0, TAU);
+                ctx.fill();
+                ctx.strokeStyle = 'rgba(120,84,16,0.55)';
+                ctx.lineWidth = 1.1;
+                ctx.fillStyle = '#c8901c';
+                ctx.beginPath();
+                for (let i = 0; i < 6; i++) {
+                    const a = -Math.PI / 2 + i * Math.PI / 3;
+                    const vx = Math.cos(a) * 8.4, vy = Math.sin(a) * 8.4;
+                    if (i === 0) ctx.moveTo(vx, vy); else ctx.lineTo(vx, vy);
+                }
+                ctx.closePath();
+                ctx.fill();
+                ctx.stroke();
+                ctx.fillStyle = '#fff6cf';
+                ctx.beginPath();
+                ctx.arc(0, 0, 3.6, 0, TAU);
+                ctx.fill();
+                ctx.strokeStyle = '#ffd24a';
+                ctx.lineWidth = 2.2;
+                ctx.beginPath();
+                ctx.arc(0, 0, 12.6, 0, TAU);
+                ctx.stroke();
+                ctx.strokeStyle = 'rgba(255,236,170,0.55)';
+                ctx.lineWidth = 1.3;
+                ctx.beginPath();
+                ctx.arc(0, 0, 17.6, 0.5, 2.4);
+                ctx.stroke();
+                ctx.fillStyle = '#ffe9a8';
+                for (let i = 0; i < 4; i++) {
+                    const a = -Math.PI / 2 + i * Math.PI / 2;
+                    ctx.beginPath();
+                    ctx.arc(Math.cos(a) * 17.6, Math.sin(a) * 17.6, 2.1, 0, TAU);
+                    ctx.fill();
+                }
+                break;
+            }
+            case CHAIN_ID: {
+                // 电锯翻滚：外圈锯齿的圆锯片 + 中心的滚动小球 + 旋转的火花弧
+                const TEETH = 14, rOut = 17.4, rIn = 13.2;
+                ctx.beginPath();
+                for (let i = 0; i < TEETH; i++) {
+                    const a0 = i * TAU / TEETH;
+                    const a1 = a0 + TAU / TEETH * 0.5;
+                    ctx.lineTo(Math.cos(a0) * rIn, Math.sin(a0) * rIn);
+                    ctx.lineTo(Math.cos(a1 + 0.14) * rOut, Math.sin(a1 + 0.14) * rOut);
+                    ctx.lineTo(Math.cos(a1) * rIn, Math.sin(a1) * rIn);
+                }
+                ctx.closePath();
+                const sg = ctx.createLinearGradient(0, -rOut, 0, rOut);
+                sg.addColorStop(0, '#f2f8ff');
+                sg.addColorStop(0.5, '#b9c9dd');
+                sg.addColorStop(1, '#7e8ea6');
+                ctx.fillStyle = sg;
+                ctx.fill();
+                ctx.strokeStyle = 'rgba(46,60,82,0.6)';
+                ctx.lineWidth = 1.1;
+                ctx.stroke();
+                // 锯片上的三道散热孔（跟着锯片转）
+                ctx.fillStyle = 'rgba(46,60,82,0.5)';
+                for (let i = 0; i < 3; i++) {
+                    const a = -Math.PI / 2 + i * TAU / 3;
+                    ctx.save();
+                    ctx.rotate(a);
+                    roundRectPath(-1.5, -9.4, 3, 4.2, 1.4);
+                    ctx.fill();
+                    ctx.restore();
+                }
+                // 中心：蜷成球的宇航员
+                ctx.fillStyle = '#eef3fa';
+                ctx.beginPath();
+                ctx.arc(0, 0, 7.6, 0, TAU);
+                ctx.fill();
+                ctx.strokeStyle = 'rgba(70,86,110,0.55)';
+                ctx.lineWidth = 1.2;
+                ctx.stroke();
+                ctx.fillStyle = '#2c3a52';
+                ctx.beginPath();
+                ctx.ellipse(0.6, -0.6, 4.6, 3.8, 0, 0, TAU);
+                ctx.fill();
+                ctx.fillStyle = 'rgba(150,230,255,0.5)';
+                ctx.beginPath();
+                ctx.ellipse(2, -2.2, 1.6, 1.1, -0.5, 0, TAU);
+                ctx.fill();
+                // 旋转火花
+                ctx.strokeStyle = 'rgba(255,214,120,0.8)';
+                ctx.lineWidth = 1.6;
+                ctx.lineCap = 'round';
+                for (let i = 0; i < 3; i++) {
+                    ctx.beginPath();
+                    ctx.arc(0, 0, rOut + 1.6, -0.5 + i * 0.7, -0.05 + i * 0.7);
+                    ctx.stroke();
+                }
+                ctx.lineCap = 'butt';
+                break;
+            }
         }
         ctx.restore();
     }
@@ -4200,7 +4416,7 @@ if (view.face === 'front') {
     }
     // 区域归属：固定栏锁死四项；装备类道具（爆炸子弹 / 星球特色装备）只出现在装备区，仅由装备补给箱与挖掘产出
     const FIXED_IDS = ['heart', 'shoes', 'dmg', 'scope'];
-    const EQUIP_IDS = ['boom'].concat(RELIC_IDS);
+    const EQUIP_IDS = ['boom', CHAIN_ID].concat(RELIC_IDS);
     function areaAllows(id, a) {
         if (a.id === 'fixed') return FIXED_IDS.indexOf(id) >= 0;
         if (a.id === 'equip' || a.id === 'equipStore') return EQUIP_IDS.indexOf(id) >= 0;
@@ -4209,7 +4425,7 @@ if (view.face === 'front') {
     // 校验存档：逐区按尺寸重建，去掉无效 id 与区内重复；该区没有存档时用初始配置填充
     function loadoutDefault(id) {
         if (id === 'fixed') return FIXED_IDS.slice();
-        if (id === 'equipStore') return ['boom'];
+        if (id === 'equipStore') return ['boom', CHAIN_ID];
         if (id === 'itemStore') return ITEMS.map((it) => it.id).filter((v) => areaAllows(v, { id: 'itemStore' }));
         return [];
     }
@@ -4223,7 +4439,8 @@ if (view.face === 'front') {
             const seen = Object.create(null);
             for (let k = 0; k < arr.length; k++) {
                 const id = old[k];
-                if (!ITEM_BY_ID[id] || seen[id] || !areaAllows(id, a)) continue;
+                // 秘籍道具是本次运行临时加进来的，读档时一律忽略
+                if (id === CHEAT_ITEM_ID || !ITEM_BY_ID[id] || seen[id] || !areaAllows(id, a)) continue;
                 seen[id] = 1; arr[k] = id;
             }
             // 固定区始终锁定为这四个道具
@@ -4233,6 +4450,27 @@ if (view.face === 'front') {
             L[a.id] = arr;
         }
         save.loadout = L;
+        // 新增的道具 / 装备也要补进已有存档：
+        // 把「默认仓库清单」里而现有配置缺少的那几件补进对应仓库（秘籍道具不计入）
+        fillMissingDefaults('itemStore');
+        fillMissingDefaults('equipStore');
+    }
+    // 把缺少的默认道具 / 装备补进指定仓库；已在其他仓库里的不重复补
+    function fillMissingDefaults(areaId) {
+        const defs = loadoutDefault(areaId);
+        if (!defs || !defs.length) return;
+        for (let i = 0; i < defs.length; i++) {
+            const id = defs[i];
+            if (id === CHEAT_ITEM_ID) continue;
+            let has = false;
+            for (let a = 0; a < INV_AREAS.length; a++) {
+                if (save.loadout[INV_AREAS[a].id].indexOf(id) >= 0) { has = true; break; }
+            }
+            if (has) continue;
+            const k = firstEmpty(areaId);
+            if (k < 0) return;
+            save.loadout[areaId][k] = id;
+        }
     }
     // 道具补给箱候选池 = 道具栏 + 固定栏
     function itemPool() {
@@ -4267,12 +4505,32 @@ if (view.face === 'front') {
         inv.on = true;
         inv.ai = 0;
         inv.c = 0; inv.r = 0;
+        inv.sw = false;
         inv.msg = ''; inv.msgT = 0;
         sfx('uiSelect');
     }
     function invMsg(msg) {
         world.inv.msg = msg;
         world.inv.msgT = 1.8;
+    }
+    // ---------- 固定栏下方的「自动射击」开关 ----------
+    // 开关挂在固定栏这一列的最下方，也就是两个补给箱图标之间；光标从固定栏首行往上、
+    // 末行往下就落到开关上，确认键切换开关
+const INV_SW_W = 48, INV_SW_H = 16;    // 开关轨道尺寸：比一格（INV_CELL）再小一号，高度按比例
+const INV_SW_DY = 62;                   // 轨道顶边相对面板底边向下的距离（与补给箱图标上部齐平）
+const INV_SW_GAP = 14;                  // 名称 / 轨道 / 状态文字之间的间距
+    function invBottom() { return INV_TOP + INV_ROWS * INV_PITCH - INV_GAP + INV_PAD; }
+    function invSwitchCx() { const i = areaIndex('fixed'); return invPanelX(i) + invPanelW(i) / 2; }
+    function invSwitchRect() {
+        const cx = invSwitchCx();
+        return { cx: cx, x: cx - INV_SW_W / 2, y: invBottom() + INV_SW_DY, w: INV_SW_W, h: INV_SW_H };
+    }
+    function toggleAutoFire() {
+        save.autoFire = save.autoFire === false;
+        persist();
+        sfx('uiSelect');
+        invMsg(save.autoFire ? '自动射击：开（战斗时始终自动开枪）'
+            : ('自动射击：关（战斗时需按住 ' + hintConfirm() + ' 才会自动射击）'));
     }
     // J / A：把光标道具移到同一对中的另一个区域；固定栏与空位不可移动
     function moveInvItem() {
@@ -4289,14 +4547,57 @@ if (view.face === 'front') {
         sfx('item');
         invMsg(ITEM_NAMES[id] + '　已移动到' + INV_AREAS[areaIndex(a.pair)].title);
     }
+    // ---------- 隐藏秘籍：光标停在固定栏时按对确认键顺序 ----------
+    // 生命恢复 → 攻击增加 → 移动增加 → 射程增加 → 移动增加 → 攻击增加 → 生命恢复
+    // 全按对就把神秘核心塞进道具栏；全程不给任何提示，且该道具不写进存档
+    function cheatInput(id) {
+        const inv = world.inv;
+        if (id && id === CHEAT_CODE[inv.cheat.length]) {
+            inv.cheat.push(id);
+            // 全程静默：连之前留在提示行上的字样也一并清掉
+            inv.msg = ''; inv.msgT = 0;
+            if (inv.cheat.length >= CHEAT_CODE.length) {
+                inv.cheat.length = 0;
+                grantCheatItem();
+            }
+            return;
+        }
+        inv.cheat.length = 0;
+        sfx('uiBack');
+        invMsg('固定栏不可移动');
+    }
+    function grantCheatItem() {
+        // 只有一份：已经在道具栏或道具仓库里就不再重复加
+        if (save.loadout.item.indexOf(CHEAT_ITEM_ID) >= 0 || save.loadout.itemStore.indexOf(CHEAT_ITEM_ID) >= 0) return;
+        const k = firstEmpty('itemStore');
+        if (k < 0) return;
+        invSlots('itemStore')[k] = CHEAT_ITEM_ID;
+        sfx('item');
+    }
     // 菜单打开时：方向键归菜单所有，K / B 关闭
     function updateInvMenu(dt) {
         const inv = world.inv;
         if (inv.msgT > 0) inv.msgT -= dt;
         const a = INV_AREAS[inv.ai];
         let moved = false;
-        if (menuEdge('up')) { inv.r = (inv.r + INV_ROWS - 1) % INV_ROWS; moved = true; }
-        if (menuEdge('down')) { inv.r = (inv.r + 1) % INV_ROWS; moved = true; }
+        if (inv.sw) {
+            // 光标停在自动射击开关上：上下回到固定栏，左右退回面板之间的切换
+            if (menuEdge('up') || menuEdge('down')) { inv.sw = false; moved = true; }
+            else if (menuEdge('left') && inv.ai > 0) { inv.sw = false; inv.ai--; inv.c = INV_AREAS[inv.ai].cols - 1; moved = true; }
+            else if (menuEdge('right') && inv.ai < INV_AREAS.length - 1) { inv.sw = false; inv.ai++; inv.c = 0; moved = true; }
+            if (moved) sfx('uiMove');
+            if (menuConfirm()) toggleAutoFire();
+            if (menuBack()) { inv.on = false; sfx('uiBack'); }
+            return;
+        }
+        if (menuEdge('up')) {
+            if (a.id === 'fixed' && inv.r === 0) { inv.sw = true; moved = true; }
+            else { inv.r = (inv.r + INV_ROWS - 1) % INV_ROWS; moved = true; }
+        }
+        if (menuEdge('down')) {
+            if (a.id === 'fixed' && inv.r === INV_ROWS - 1) { inv.sw = true; moved = true; }
+            else { inv.r = (inv.r + 1) % INV_ROWS; moved = true; }
+        }
         if (menuEdge('left')) {
             if (inv.c > 0) { inv.c--; moved = true; }
             else if (inv.ai > 0) { inv.ai--; inv.c = INV_AREAS[inv.ai].cols - 1; moved = true; }
@@ -4306,7 +4607,10 @@ if (view.face === 'front') {
             else if (inv.ai < INV_AREAS.length - 1) { inv.ai++; inv.c = 0; moved = true; }
         }
         if (moved) sfx('uiMove');
-        if (menuConfirm()) moveInvItem();
+        if (menuConfirm()) {
+            if (a.id === 'fixed') cheatInput(slotAt(a.id, inv.c, inv.r));
+            else moveInvItem();
+        }
         if (menuBack()) { inv.on = false; sfx('uiBack'); }
     }
     // 面板横坐标：1x4 / 4x4 / 1x4 / 4x4 / 1x4 依次排开，整体水平居中
@@ -4362,7 +4666,8 @@ if (view.face === 'front') {
                     ctx.fillStyle = 'rgba(220,232,248,0.72)';
                     ctx.fillText(ITEM_NAMES[id], cx + INV_CELL / 2, cy + INV_CELL - 8);
                 }
-                if (focused && inv.c === c && inv.r === r) {
+                // 光标停在固定栏下方的开关上时，格子光标不再亮起
+                if (focused && !inv.sw && inv.c === c && inv.r === r) {
                     const pu = 0.5 + 0.5 * Math.sin(world.t * 6);
                     ctx.strokeStyle = 'rgba(255,255,255,' + (0.20 + 0.30 * pu) + ')';
                     ctx.lineWidth = 5;
@@ -4458,7 +4763,7 @@ if (view.face === 'front') {
     function drawInvWiring() {
         const px = [];
         for (let i = 0; i < INV_AREAS.length; i++) px.push(invPanelX(i) + invPanelW(i) / 2);
-        const bottom = INV_TOP + INV_ROWS * INV_PITCH - INV_GAP + INV_PAD;   // 面板底边
+        const bottom = invBottom();   // 面板底边
         const top = BOX_Y - 20;
         const col = 'rgba(124,224,255,0.42)';
         const colW = 'rgba(197,140,255,0.42)';
@@ -4471,6 +4776,56 @@ if (view.face === 'front') {
         drawInvLink([px[4], bottom, px[4], LINK_Y, px[3] + 22, LINK_Y, px[3] + 22, top], colW);
         drawInvLink([px[3], bottom, px[3], top], 'rgba(197,140,255,0.22)', 2, true);
         drawSupplyBoxGlyph(px[3], BOX_Y, true);
+    }
+    // 固定栏下方（两个补给箱之间）的自动射击开关：左名称 + 中间轨道滑块 + 右状态
+    function drawInvSwitch() {
+        const inv = world.inv;
+        const r = invSwitchRect();
+        const on = save.autoFire !== false;
+        const mid = r.y + r.h / 2;
+        ctx.save();
+        ctx.textBaseline = 'middle';
+        setFont(13, 'bold');
+        ctx.textAlign = 'right';
+        ctx.fillStyle = 'rgba(226,240,255,0.92)';
+        ctx.fillText('自动射击', r.x - INV_SW_GAP, mid);
+        ctx.fillStyle = on ? 'rgba(124,224,255,0.28)' : 'rgba(122,140,170,0.20)';
+        roundRectPath(r.x, r.y, r.w, r.h, r.h / 2);
+        ctx.fill();
+        ctx.strokeStyle = on ? 'rgba(124,224,255,0.72)' : 'rgba(150,168,196,0.48)';
+        ctx.lineWidth = 1.6;
+        roundRectPath(r.x + 0.8, r.y + 0.8, r.w - 1.6, r.h - 1.6, r.h / 2);
+        ctx.stroke();
+        const kx = on ? (r.x + r.w - r.h / 2) : (r.x + r.h / 2);
+        const kg = ctx.createLinearGradient(0, r.y + 2, 0, r.y + r.h - 2);
+        if (on) { kg.addColorStop(0, '#eaf9ff'); kg.addColorStop(1, '#5cc0ee'); }
+        else { kg.addColorStop(0, '#d8dfe9'); kg.addColorStop(1, '#8b97a9'); }
+        ctx.fillStyle = kg;
+        ctx.beginPath();
+        ctx.arc(kx, mid, r.h / 2 - 3.6, 0, TAU);
+        ctx.fill();
+        setFont(12, 'bold');
+        ctx.textAlign = 'left';
+        ctx.fillStyle = on ? '#7cf07c' : '#ffb45c';
+        ctx.fillText(on ? '开' : '关', r.x + r.w + INV_SW_GAP, mid);
+        // 下方一行说明当前档位的效果
+        setFont(11, 'normal');
+        ctx.textAlign = 'center';
+        ctx.fillStyle = 'rgba(175,198,230,0.88)';
+        ctx.fillText(on ? '战斗中的自动射击：始终开启'
+            : ('战斗中的自动射击：关闭 —— 需按住 ' + hintConfirm() + ' 才会自动射击'), r.cx, r.y + r.h + 20);
+        if (inv.sw) {
+            const pu = 0.5 + 0.5 * Math.sin(world.t * 6);
+            ctx.strokeStyle = 'rgba(255,255,255,' + (0.20 + 0.30 * pu) + ')';
+            ctx.lineWidth = 5;
+            roundRectPath(r.x - 5, r.y - 5, r.w + 10, r.h + 10, r.h / 2 + 5);
+            ctx.stroke();
+            ctx.strokeStyle = '#ffffff';
+            ctx.lineWidth = 2.6;
+            roundRectPath(r.x - 2.5, r.y - 2.5, r.w + 5, r.h + 5, r.h / 2 + 2.5);
+            ctx.stroke();
+        }
+        ctx.restore();
     }
     function drawInvMenu() {
         const inv = world.inv;
@@ -4500,15 +4855,16 @@ if (view.face === 'front') {
             + '　装备 ' + countFilled('equip') + '/' + INV_SLOTS.equip, W / 2, 106);
         for (let i = 0; i < INV_AREAS.length; i++) drawInvPanel(i);
         drawInvWiring();
+        drawInvSwitch();
         const a = INV_AREAS[inv.ai];
-        const cur = slotAt(a.id, inv.c, inv.r);
+        const cur = inv.sw ? null : slotAt(a.id, inv.c, inv.r);
         const eff = cur ? itemEffect(cur) : '';
         setFont(16, 'bold');
         ctx.fillStyle = '#ffffff';
-        ctx.fillText(eff ? '效果：' + eff : '光标：' + (cur && ITEM_BY_ID[cur] ? ITEM_NAMES[cur] : '（空）'), W / 2, BOX_Y + 74);
+        ctx.fillText(eff ? '效果：' + eff : (inv.sw ? '开关：自动射击' : '光标：' + (cur && ITEM_BY_ID[cur] ? ITEM_NAMES[cur] : '（空）')), W / 2, BOX_Y + 74);
         setFont(13, 'normal');
         ctx.fillStyle = 'rgba(175,198,230,0.88)';
-        ctx.fillText(hintMove() + ' 移动光标　·　' + hintConfirm() + ' 移动道具　·　' + hintBack() + ' 关闭', W / 2, BOX_Y + 100);
+        ctx.fillText(hintMove() + ' 移动光标　·　' + hintConfirm() + ' 移动道具 / 切换开关　·　' + hintBack() + ' 关闭', W / 2, BOX_Y + 100);
         ctx.restore();
     }
 
@@ -4521,10 +4877,10 @@ if (view.face === 'front') {
             boomR: boomRadius(p.boomLv),
             bullets: p.bullets,
             speed: Math.round(BASE_SPEED * p.speedMul * world.slowFactor),
-            pickup: Math.round(PICKUP_BASE + p.pickupBonus),
-            dodge: Math.round(DODGE_BASE + p.dodge),
+            pickup: Math.round(pickupRange(p)),
+            dodge: Math.round(rollDist(p)),
             rollCd: rollCdTime(p).toFixed(2) + ' s',
-            fireRange: Math.round(FIRE_RANGE + p.fireBonus)
+            fireRange: Math.round(fireRangeOf(p))
         };
     }
     // ==================== 范围光影（拾取高亮 + 射程压暗） ====================
@@ -4534,17 +4890,6 @@ if (view.face === 'front') {
     function drawRangeRings(cx, cy, t) {
         const st = playerStats();
         ctx.save();
-        // 闪避距离：青蓝色虚线安全圈，只有堆了力场道具才画
-        if (st.dodge > 0) {
-            ctx.setLineDash([3, 7]);
-            ctx.lineDashOffset = -t * 18;
-            ctx.strokeStyle = 'rgba(124,224,255,0.30)';
-            ctx.lineWidth = 1.6;
-            ctx.beginPath();
-            ctx.arc(cx, cy, st.dodge, 0, Math.PI * 2);
-            ctx.stroke();
-            ctx.setLineDash([]);
-        }
         // 拾取范围：中心轻微加亮，边缘彻底化开
         const pr = st.pickup;
         const pg = ctx.createRadialGradient(cx, cy, pr * 0.08, cx, cy, pr);
@@ -4552,11 +4897,22 @@ if (view.face === 'front') {
         pg.addColorStop(0.40, 'rgba(132,248,190,0.10)');
         pg.addColorStop(0.78, 'rgba(120,240,170,0.042)');
         pg.addColorStop(1, 'rgba(120,240,170,0)');
-        ctx.globalCompositeOperation = 'lighter';
+ctx.globalCompositeOperation = 'lighter';
         ctx.fillStyle = pg;
         ctx.beginPath();
-        ctx.arc(cx, cy, pr, 0, Math.PI * 2);
+        ctx.arc(cx, cy, pr, 0, TAU);
         ctx.fill();
+        // 秘籍道具的环绕伤害：以射程为半径的一圈淡金内发光，标出持续掉血的区域
+        if (world.player.cheat > 0) {
+            const r0 = st.fireRange;
+            const ag = ctx.createRadialGradient(cx, cy, r0 * 0.7, cx, cy, r0);
+            ag.addColorStop(0, 'rgba(255,210,74,0)');
+            ag.addColorStop(1, 'rgba(255,210,74,0.085)');
+            ctx.fillStyle = ag;
+            ctx.beginPath();
+            ctx.arc(cx, cy, r0, 0, TAU);
+            ctx.fill();
+        }
         ctx.restore();
     }
     // 射击范围：圈内保持原样，圈外由内向外逐渐压暗（比原先的暗角略深）
@@ -4626,6 +4982,7 @@ if (view.face === 'front') {
         ctx.restore();
     }
     // 翻滚充能：脚下一条半透明蓝条，取代原先绕身画的 CD 圈
+    // 描边按满条的总长度画出（不再跟着填充一起缩短），内部填充带横向渐变
     function drawRollCharge() {
         const p = world.player;
         if (p.rollCd <= 0) return;                  // 充满即隐身，不再画这条条
@@ -4638,14 +4995,17 @@ if (view.face === 'front') {
         const col = 'rgba(124,224,255,' + lit.toFixed(3) + ')';
         const fw = Math.max(h, w * k);
         ctx.save();
-        // 未充到的部分保持透明：只画已经充好的那一截
-        ctx.fillStyle = col;
+        // 内部填充：未充到的部分保持透明，只画已经充好的那一截，并沿推进方向由深到浅渐变
+        const fg = ctx.createLinearGradient(x, 0, x + w, 0);
+        fg.addColorStop(0, 'rgba(46,132,190,' + (0.62 * lit).toFixed(3) + ')');
+        fg.addColorStop(1, col);
+        ctx.fillStyle = fg;
         roundRectPath(x, y, fw, h, h / 2);
         ctx.fill();
-        // 描边跟着当前颜色，宽度明显大于条本身
+        // 描边始终是满条总长度的粗描边，颜色与当前颜色一致
         ctx.strokeStyle = col;
-        ctx.lineWidth = 3.4;
-        roundRectPath(x, y, fw, h, h / 2);
+        ctx.lineWidth = 2.2;
+        roundRectPath(x, y, w, h, h / 2);
         ctx.stroke();
         // 头部一点更亮的高光，标出充能的推进端
         ctx.fillStyle = 'rgba(226,248,255,' + (0.55 + 0.45 * k).toFixed(3) + ')';
@@ -4671,6 +5031,7 @@ if (view.face === 'front') {
         // 装备类效果单独列出：与常规参数之间用一条分割线隔开
         const extras = [];
         if (st.boomR > 0) extras.push(['爆炸范围', st.boomR]);
+        if (world.player.chainLv > 0) extras.push(['电锨翻滚伤害', '×' + chainMul(world.player)]);
         for (let i = 0; i < RELICS.length; i++) {
             const r = RELICS[i];
             const lv = world.player.relics[r.id];
@@ -5357,13 +5718,22 @@ if (view.face === 'front') {
                 p.speedMul += SPEED_STEP;
                 addPopup(p.x, p.y - 30, '移动速度 +基础值 ' + Math.round(SPEED_STEP * 100) + '%', '#5ad2a0', true);
                 break;
-            case 'magnet':
-                p.pickupBonus += PICKUP_STEP;
-                addPopup(p.x, p.y - 30, '拾取范围 +' + PICKUP_STEP, '#6fb7ff', true);
+            case 'magnet': {
+                // 每件把「初始值」抬高 50%（初始值本身会被神秘核心抬到 200，所以此时是 +100）
+                const add = pickupBase(p) * PICKUP_STEP_R;
+                p.pickupBonus += add;
+                addPopup(p.x, p.y - 30, '拾取范围 +' + add, '#6fb7ff', true);
                 break;
+            }
             case 'dodge':
-                p.dodge += DODGE_STEP;
-                addPopup(p.x, p.y - 30, '闪避距离 +' + DODGE_STEP, '#7ce0ff', true);
+                p.dodgeLv++;
+                addPopup(p.x, p.y - 30, '闪避距离 +' + ROLL_DIST_STEP, '#7ce0ff', true);
+                break;
+            case CHAIN_ID:
+                // 首件：翻滚距离翻倍、取消弹开、对路径上的敌人造成攻击力 ×2 的伤害；
+                // 之后每件再 +1 倍
+                p.chainLv++;
+                addPopup(p.x, p.y - 30, '电锨翻滚：伤害 ×' + chainMul(p), '#cfe4ff', true);
                 break;
             case 'rate': {
                 const old = p.fireCdMs;
@@ -5396,15 +5766,37 @@ if (view.face === 'front') {
                 addPopup(p.x, p.y - 30, first ? '获得爆炸子弹' : ('爆炸范围 +' + BOOM_STEP_R), '#ff9f43', true);
                 break;
             }
+            case CHEAT_ITEM_ID:
+                // 立刻把拾取范围扩到「当前的」射击距离并就此定格：
+                // 之后射击距离再被瞄镜推高，也不会再带着拾取范围一起涨
+                p.dmg += CHEAT_DMG;
+                if (!p.cheat) p.cheatPickup = fireRangeOf(p);
+                p.cheat++;
+                addPopup(p.x, p.y - 30, '神秘核心：攻击力 +' + CHEAT_DMG, '#ffd24a', true);
+                break;
         }
         sfx('item');
     }
 
-    // 已拾取的道具个数（含本次），用来按「基础值 × 固定百分比 × 个数」算最终数值
-    function itemCount(id) { return world.stats.items[id] || 0; }
+// 已拾取的道具个数（含本次），用来按「基础值 × 固定百分比 × 个数」算最终数值
+function itemCount(id) { return world.stats.items[id] || 0; }
+// 拾取范围的初始值：平时是 PICKUP_BASE；拿到神秘核心时定格为「当时的射击距离」
+function pickupBase(p) { return p.cheat ? p.cheatPickup : PICKUP_BASE; }
+    // 拾取范围与射击距离各自独立计算：
+    //   拾取范围 = 初始值 + 磁力线圈加成（只有拾取类道具能推高它）
+    //   射击距离 = 初始距离 + 远射瞄镜加成（只有射程类道具能推高它）
+    function pickupRange(p) { return pickupBase(p) + p.pickupBonus; }
+    function fireRangeOf(p) { return FIRE_RANGE + p.fireBonus; }
     // 翻滚冷却：每件冷却模块降低基础冷却时间的 15%，封顶为基础值的 15%
     function rollCdMulFor(n) { return Math.max(ROLLCD_MIN, Math.round((1 - ROLLCD_STEP * n) * 100) / 100); }
     function rollCdTime(p) { return ROLL_CD * p.rollCdMul; }
+    // 闪避距离：按下 K 后向当前方向滚动的总距离（初始 150，每件闪避增长 +50；电锯翻滚再翻倍）
+function rollDist(p) {
+    const base = ROLL_DIST_BASE + p.dodgeLv * ROLL_DIST_STEP;
+        return p.chainLv > 0 ? base * CHAIN_DIST_MUL : base;
+    }
+    // 电锯翻滚的伤害倍率：首件 ×2，之后每件再 +1 倍
+    function chainMul(p) { return p.chainLv > 0 ? CHAIN_BASE_MUL + p.chainLv - 1 : 0; }
 
     // J：选用头顶道具（BOSS 击败后依然可以选择已拾取的补给箱）
     function handleAction() {
@@ -5415,7 +5807,7 @@ if (view.face === 'front') {
         }
     }
 
-    // K：翻滚（无敌），冷却 3 秒，方向按当前移动方向
+    // K：翻滚（无敌），冷却 3 秒，方向按当前移动方向，位移距离 = rollDist(p)（初始 150，每件闪避增长 +50）
     // 战斗结束（BOSS 已击败）后依然可以翻滚
     function tryRoll() {
         const p = world.player;
@@ -5424,6 +5816,7 @@ if (view.face === 'front') {
         p.rollT = ROLL_TIME;
         p.rollCd = rollCdTime(p);
         p.rollAngle = 0;
+        p.rollId++;         // 本次翻滚的编号：用来保证同一只怪在一次翻滚里只被结算一次
         // 按当前移动方向滚动：优先使用移动方向，如果没有移动则使用朝向
         const mv = moveVector();
         let dirIdx;
@@ -5434,7 +5827,7 @@ if (view.face === 'front') {
         }
         p.rollDir = dirIdx;
         const d = DIRS[dirIdx];
-        const v = ROLL_DIST / ROLL_TIME;
+        const v = rollDist(p) / ROLL_TIME;
         p.rollVX = d.ix * v;
         p.rollVY = d.iy * v;
         p.dirIdx = dirIdx;            // 滚动时朝向也同步
@@ -5674,7 +6067,7 @@ function drawRelicFx() {
 }
 
 // ==================== 信标与挖掘 ====================
-// BOSS 被击杀后：70% 概率掉落一只闪光信标；同时在画面之外、飞船远处埋好一件看不见的东西
+// BOSS 被击杀后：必定掉落一只闪光信标；同时在画面之外、飞船远处埋好一件看不见的东西
 function hiddenRawTarget() {
     const cam = world.cam;
     const side = randInt(0, 3);
@@ -5714,23 +6107,41 @@ function spawnBossSpoils(bx, by, br) {
     addPopup(p.x, p.y - 58, 'BOSS 掉落了一只闪光信标！', '#ffe066', true);
     addPopup(p.x, p.y - 26, '走过去拾取它', '#cfe4ff', true);
 }
-// 信标信号强度：进入隐藏道具的初始拾取范围即达到顶峰，向外线性衰减
+// 信标信号强度：进入隐藏道具的初始拾取范围即达到顶峰，之后按每一级各自的宽度向外衰减
 function beaconSignal() {
     if (!world.beacon || !world.hidden) return 0;
     const p = world.player;
     const d = Math.hypot(dX(p.x, world.hidden.x), dY(p.y, world.hidden.y));
-if (d <= BEACON_STEP_D) return 1;
-    // 平台之外按每级 BEACON_STEP_D 线性衰减，剩下 4 级刚好走到 0
-    return clamp(1 - (d - BEACON_STEP_D) / (BEACON_STEP_D * (SIG_STEPS - 1)), 0, 1);
+    if (d <= SIG_STEP_DIST[0]) return 1;
+    // 逐级往外走：第 i 级在自己的 SIG_STEP_DIST[i] 宽度内，
+    // 从本级的上限 (1-(i-1)*step) 线性衰减到下一级的下限 (1-i*step)
+    let prev = SIG_STEP_DIST[0];
+    const step = 1 / (SIG_STEPS - 1);
+    for (let i = 1; i < SIG_STEP_DIST.length; i++) {
+        const w = SIG_STEP_DIST[i];
+        if (d <= prev + w) return 1 - (i - 1) * step - (d - prev) / w * step;
+        prev += w;
     }
-    // 取信号对应的等级（由强到弱依次匹配）
+    return 0;
+    }
+    // 取信号对应的等级下标（0 最强），由强到弱依次匹配
+    function sigLevelIndex(sig) {
+        for (let i = 0; i < SIG_LEVELS.length; i++) if (sig >= SIG_LEVELS[i].atLeast) return i;
+        return SIG_LEVELS.length - 1;
+    }
     function sigLevel(sig) {
-        for (let i = 0; i < SIG_LEVELS.length; i++) if (sig >= SIG_LEVELS[i].atLeast) return SIG_LEVELS[i];
-        return SIG_LEVELS[SIG_LEVELS.length - 1];
+        return SIG_LEVELS[sigLevelIndex(sig)];
     }
     function beaconBeep(sig) {
     tone({ type: 'square', f0: 880 + 620 * sig, f1: 1160 + 900 * sig, dur: 0.045 + 0.03 * sig, vol: 0.032 + 0.036 * sig });
     tone({ type: 'sine', f0: 1760 + 900 * sig, dur: 0.03, vol: 0.016 + 0.022 * sig });
+}
+    // 跨进更近一档时的专属提示：常规嘀嘀声之外再叠一串上行音
+    function beaconLevelUp(sig) {
+    beaconBeep(sig);
+    for (let i = 0; i < 3; i++) {
+        tone({ type: 'triangle', f0: 1046 * Math.pow(1.26, i), dur: 0.1, vol: 0.05, delay: 0.05 + i * 0.08 });
+    }
 }
 function updateBeacon(dt) {
     const bc = world.beacon;
@@ -5758,7 +6169,8 @@ function updateBeacon(dt) {
         }
     }
     if (!bc.held) {
-        if (Math.hypot(dX(p.x, bc.x), dY(p.y, bc.y)) < PICKUP_BASE + p.pickupBonus) {
+        // 信标按统一的物品拾取半径判定（与补给箱一致），不受「拾取范围」技能影响
+        if (Math.hypot(dX(p.x, bc.x), dY(p.y, bc.y)) < PICKUP_ITEM_R) {
             bc.held = true;
             bc.vx = 0; bc.vy = 0; bc.wander = 0; bc.ox = 0; bc.oy = 0; bc.otx = 0; bc.oty = 0; bc.z = 0; bc.gx = bc.x; bc.gy = bc.y;
             sfx('item');
@@ -5774,7 +6186,8 @@ function updateBeacon(dt) {
             const weak = world.hidden && beaconSignal() <= BEACON_WEAK_SIG;
             bc.wander = weak ? rand(0.8, 1.8) : rand(1.5, 3.0);
             if (weak) {
-                // 微弱：锁定「人物中心 → 埋藏点」这条连线，在指向埋藏点的一侧、约一个身位处漂浮。
+                // 微弱：以「人物中心」为原点，锁定「人物中心 → 埋藏点」这条连线，
+                // 信标停在指向埋藏点的一侧、比原先更远的位置（BEACON_POINT_R）。
                 // 只叠一点垂直抖动，既保持指向性又不像被钉死。
                 const a = Math.atan2(dY(world.hidden.y, p.y - BODY_OFF), dX(world.hidden.x, p.x)) + rand(-BEACON_POINT_JITTER, BEACON_POINT_JITTER);
                 const rr = rand(BEACON_POINT_R * 0.92, BEACON_POINT_R * 1.08);
@@ -5801,6 +6214,16 @@ function updateBeacon(dt) {
     // 越靠近隐藏道具，闪烁与嘀嘀提示音越急促
     const sig = bc.held ? beaconSignal() : 0.25;
     const gap = bc.held ? lerp(BEACON_BEAT_FAR, BEACON_BEAT_NEAR, sig) : 1.5;
+    // 进入更近的一档提示等级时立刻先响一声提示音，不必等这一拍的间隔走完
+    if (bc.held) {
+        const li = sigLevelIndex(sig);
+        if (bc.lv !== undefined && li < bc.lv) {
+            bc.flash = 1;
+            bc.beat = gap;
+            beaconLevelUp(sig);
+        }
+        bc.lv = li;
+    }
     bc.beat -= dt;
     if (bc.beat <= 0) {
         bc.beat = gap;
@@ -5824,7 +6247,8 @@ function tryDig() {
     const hid = world.hidden;
     if (hid && Math.hypot(dX(world.player.x, hid.x), dY(world.player.y, hid.y)) <= DIG_HIT_R) resolveDig();
 }
-// 挖掘结算：80% 本星球特色装备（挖过就不再出现）/ 20% 本星球宝石 / 其余空手
+// 挖掘结算：两样都能挖时 80% 本星球特色装备 / 20% 本星球宝石；
+// 只剩一样能挖时那一样必定挖到（本星球只要还有未获得的装备或宝石，就一定能挖出东西）
 // 注意：这里只负责判定并把东西弹到人物附近，暂不入库；等玩家真正拾取时才写存档。
 function resolveDig() {
     const p = world.player;
@@ -5833,24 +6257,23 @@ function resolveDig() {
     const hx = world.hidden.x, hy = world.hidden.y;
     const canRelic = relic && !save.relics[pid];
     const canGem = !save.gems[pid];        // 宝石每颗星球只能挖到一次
-    // 两样都还能挖：80% 装备 / 20% 宝石；只剩一样时按 80:20 落到那一样上
-    const r = Math.random();
     let kind = 'none';
-    if (canRelic && canGem) kind = r < 0.8 ? 'relic' : 'gem';
-    else if (canGem) kind = r < 0.2 ? 'gem' : 'none';
-    else if (canRelic) kind = r < 0.8 ? 'relic' : 'none';
+    if (canRelic && canGem) kind = Math.random() < 0.8 ? 'relic' : 'gem';
+    else if (canRelic) kind = 'relic';
+    else if (canGem) kind = 'gem';
     world.hidden = null;
     world.beacon = null;                 // 挖完即消失，信标不再继续提示
     world.dig.locked = true;
     if (kind === 'none') {
+        // 本星球的装备与宝石都已入库，再挖也不会有任何东西
         world.found = null;
-        addPopup(p.x, p.y - 58, '什么都没挖到…', '#c9d4e6', true);
+        addPopup(p.x, p.y - 58, '本星球的东西已被你挖光了…', '#c9d4e6', true);
         sfx('uiBack');
         return;
     }
-    // 与信标同样的跳出效果：从埋藏点弹起，落到人物附近两个身位的随机地面点上
+    // 与信标同样的跳出效果：从埋藏点弹起，落到人物附近（1.8~2.8 个身位）的随机地面点上
     const a = rand(0, Math.PI * 2);
-    const rr = rand(FIND_HOP_R * 0.62, FIND_HOP_R);
+    const rr = rand(FIND_HOP_MIN_R, FIND_HOP_MAX_R);
     const tx = wrapVal(p.x + Math.cos(a) * rr, MAP_W);
     const ty = wrapVal(p.y + Math.sin(a) * rr, MAP_H);
     const item = kind === 'relic' ? relic.item : gemItemId(pid);
@@ -5944,7 +6367,8 @@ function updateFound(dt) {
         }
         return;
     }
-    if (Math.hypot(dX(p.x, f.x), dY(p.y, f.y)) < PICKUP_BASE + p.pickupBonus) {
+    // 挖出来的东西同样按统一的物品拾取半径判定，不受「拾取范围」技能影响
+    if (Math.hypot(dX(p.x, f.x), dY(p.y, f.y)) < PICKUP_ITEM_R) {
         f.collect = true;
         f.collectT = 0;
         sfx('pickup');
@@ -6354,7 +6778,7 @@ function explodeBullet(bu, direct) {
             const d = dx * dx + dy * dy;
             if (d < bd) { bd = d; target = e; }
         }
-        const range = FIRE_RANGE + p.fireBonus;
+        const range = fireRangeOf(p);
         if (!target || Math.sqrt(bd) > range) return;
         const tx = dX(target.x, p.x), ty = dY(target.y, p.y);
         const base = Math.atan2(ty, tx);
@@ -6387,6 +6811,31 @@ if (!mv.x && !mv.y || (mv.x * tx + mv.y * ty) > 0) {
         triggerRelics();
         const mx = wrapVal(p.x + Math.cos(base) * 30, MAP_W), my = wrapVal(p.y + Math.sin(base) * 30, MAP_H);
         addFx({ kind: 'muzzle', x: mx, y: my, ang: base, life: 0.09, max: 0.09, col: '#bff0ff' });
+    }
+    // 神秘核心：射程内的敌人（含 BOSS）每 1 秒自动吃到一次攻击力伤害
+    function updateCheatAura(dt) {
+        const p = world.player;
+        if (!p.cheat) return;
+        p.cheatCd -= dt;
+        if (p.cheatCd > 0) return;
+        p.cheatCd = CHEAT_AURA_CD;
+        const range = fireRangeOf(p);
+        const by = playerBodyY();
+        // 倒着遍历：killEnemy 会就地 splice，正序会让下标全部错位
+        for (let i = world.enemies.length - 1; i >= 0; i--) {
+            const e = world.enemies[i];
+            if (Math.hypot(dX(e.x, p.x), dY(e.y, by)) > range) continue;
+            e.hp -= p.dmg;
+            e.flash = 0.16;
+            addFx({ kind: 'spark', x: e.x, y: e.y, life: 0.26, max: 0.26, r: 10, col: '#ffd24a' });
+            if (e.hp <= 0) killEnemy(e, i);
+        }
+        const b = world.boss;
+        if (b && !world.bossDefeated && Math.hypot(dX(b.x, p.x), dY(b.y, by)) <= range) {
+            b.hp -= p.dmg;
+            b.flash = 0.14; b.hurtT = 0.14;
+            addFx({ kind: 'spark', x: b.x, y: b.y, life: 0.3, max: 0.3, r: 14, col: '#ffd24a' });
+        }
     }
 
     // ==================== 经验与等级 ====================
@@ -6496,6 +6945,8 @@ function bossLevelNeed() { return BOSS_LEVEL_BASE + world.bossKills; }
             return;
         }
         if (!world.over) world.runTime += dt;
+        // 触地计时：着陆阶段由 updateLanding 填，着陆结束后在这里继续累加
+        if (world.landed >= 0) world.landed += dt;
         if (world.fade > 0) world.fade = Math.max(0, world.fade - dt);
         const cam = world.cam;
         const planet = world.planet;
@@ -6568,9 +7019,11 @@ function bossLevelNeed() { return BOSS_LEVEL_BASE + world.bossKills; }
         }
         if (p.hpRing > 0) p.hpRing = Math.max(0, p.hpRing - dt);
 
-        // 自动开火
+        // 自动开火：战备栏里关掉自动射击后，必须按住 J / 手柄 A 才会继续自动射击
         p.fireCd -= dt;
-        if (!world.over && !world.bossDefeated && !world.quiet && p.fireCd <= 0) playerFire();
+        if (!world.over && !world.bossDefeated && !world.quiet && p.fireCd <= 0 && fireReady()) playerFire();
+        // 神秘核心的环绕伤害
+        if (!world.over && !world.bossDefeated && p.cheat) updateCheatAura(dt);
 
         // 道具环
         // 道具三选一：左/右轮换，静止时不动；10 秒未选则自动结算头顶
@@ -6604,7 +7057,6 @@ function bossLevelNeed() { return BOSS_LEVEL_BASE + world.bossKills; }
         }
 
         // 敌人
-        const dodgeR = DODGE_BASE + p.dodge;
         for (let i = world.enemies.length - 1; i >= 0; i--) {
             const e = world.enemies[i];
             if (e.flash > 0) e.flash -= dt;
@@ -6630,22 +7082,36 @@ function bossLevelNeed() { return BOSS_LEVEL_BASE + world.bossKills; }
                     });
                 }
             }
-            if (d < e.r + CHAR_S * 0.40) {
+            // 与人物的接触处理：
+            //   翻滚中 → 默认把敌人弹开一个身位；电锯翻滚取消弹开，改为对路径上的敌人造成伤害
+            //   站桩撞上 → 敌人被击杀（不掉经验），自己掉 1 血并被击退
+            if (p.rollT > 0) {
+                const hitR = p.chainLv > 0 ? CHAIN_HIT_R : CHAR_S * 0.40;
+                if (d < e.r + hitR) {
+                    if (p.chainLv > 0) {
+                        if (e.rollHit !== p.rollId) {
+                            e.rollHit = p.rollId;
+                            const cd = p.dmg * chainMul(p);
+                            e.hp -= cd;
+                            e.flash = 0.22;
+                            addPopup(e.x, e.y - 22, '-' + cd, '#ffd08a', false);
+                            addFx({ kind: 'spark', x: e.x, y: e.y, life: 0.32, max: 0.32, r: 14, col: '#cfe4ff' });
+                            if (e.hp <= 0) killEnemy(e, i);
+                        }
+                    } else if (e.rollPush !== p.rollId) {
+                        // 弹开时用 -n：(nx, ny) 指向人物，取反才是偏离人物的方向
+                        e.rollPush = p.rollId;
+                        e.x = wrapVal(e.x - nx * ROLL_PUSH_D, MAP_W);
+                        e.y = wrapVal(e.y - ny * ROLL_PUSH_D, MAP_H);
+                        e.ang = Math.atan2(-ny, -nx);
+                        addFx({ kind: 'spark', x: e.x, y: e.y, life: 0.3, max: 0.3, r: 15, col: '#9fd8ff' });
+                    }
+                }
+            } else if (d < e.r + CHAR_S * 0.40) {
                 e.x = wrapVal(e.x - nx * 46, MAP_W);
                 e.y = wrapVal(e.y - ny * 46, MAP_H);
                 damagePlayer(1, e.x, e.y);
                 killEnemy(e, i, false);
-            }
-            // 闪避距离：顶回安全圈外，圈内的敌人无法贴身
-            if (dodgeR > 0) {
-                const ddx = dX(p.x, e.x), ddy = dY(p.y, e.y);
-                const dd2 = Math.hypot(ddx, ddy);
-                const keep = dodgeR + e.r;
-                if (dd2 < keep && dd2 > 0.01) {
-                    e.x = wrapVal(e.x + ddx / dd2 * (keep - dd2), MAP_W);
-                    e.y = wrapVal(e.y + ddy / dd2 * (keep - dd2), MAP_H);
-                    e.ang = Math.atan2(ddy, ddx);
-                }
             }
             // 分离力：避免所有怪挤成一团
             for (let k = 0; k < world.enemies.length; k++) {
@@ -6666,7 +7132,15 @@ function bossLevelNeed() { return BOSS_LEVEL_BASE + world.bossKills; }
         if (world.boss && !world.bossDefeated) {
             const b = world.boss;
             const d = Math.hypot(dX(b.x, p.x), dY(b.y, p.y));
-            if (d < b.r + CHAR_S * 0.45) damagePlayer(1, b.x, b.y);
+            if (p.rollT > 0 && p.chainLv > 0 && d < b.r + CHAIN_HIT_R && b.rollHit !== p.rollId) {
+                // 电锯翻滚经过 BOSS：一次翻滚只结算一次伤害；BOSS 体积大，不参与弹开
+                b.rollHit = p.rollId;
+                const cd = p.dmg * chainMul(p);
+                b.hp -= cd;
+                b.flash = 0.22; b.hurtT = 0.22;
+                addPopup(b.x, b.y - 40, '-' + cd, '#ffd08a', false);
+                addFx({ kind: 'spark', x: b.x, y: b.y, life: 0.36, max: 0.36, r: 26, col: '#cfe4ff' });
+            } else if (d < b.r + CHAR_S * 0.45) damagePlayer(1, b.x, b.y);
         }
 
         // 玩家子弹
@@ -6860,7 +7334,7 @@ function bossLevelNeed() { return BOSS_LEVEL_BASE + world.bossKills; }
         // 经验球：必须先进入拾取圈才会被吸引；一旦被吸引必定拾取到
         // BOSS 击败后停止拾取，场上光点冻结为纯装饰
         // 未被拾取的经验球最多停留 ORB_LIFE 秒，超时淡出消失，避免光点无限堆积
-        const pickR = PICKUP_BASE + p.pickupBonus;
+        const pickR = pickupRange(p);
         // 判定略宽于绘制的圈，抵消取整误差并让圈边缘的手感更跟手
         const lockR = pickR * PICKUP_TOL;
         const oby = playerBodyY();        // 身形中心（与范围圈一致）
@@ -6910,7 +7384,7 @@ function bossLevelNeed() { return BOSS_LEVEL_BASE + world.bossKills; }
                     pk.y = wrapVal(pk.y + step, MAP_H);
                 }
             }
-            if (Math.hypot(dX(pk.x, p.x), dY(pk.y, p.y)) < CHAR_S * 0.7) {
+            if (Math.hypot(dX(pk.x, p.x), dY(pk.y, p.y)) < PICKUP_ITEM_R) {
                 // 未选择状态下又拾取新箱：当前头顶的直接算作已选，再开启新的一轮
                 if (world.pkg && world.pkg.length) confirmPkg(true);
                 world.pkgQueue.push(pk.items.slice());
@@ -7068,7 +7542,10 @@ function bossLevelNeed() { return BOSS_LEVEL_BASE + world.bossKills; }
             if (world.runTime > 0 && (rec.bestTime === 0 || world.runTime < rec.bestTime)) rec.bestTime = world.runTime;
         }
         for (const k in world.stats.weapons) rec.weapons[k] = (rec.weapons[k] || 0) + world.stats.weapons[k];
-        for (const k in world.stats.items) rec.items[k] = (rec.items[k] || 0) + world.stats.items[k];
+        for (const k in world.stats.items) {
+            if (k === CHEAT_ITEM_ID) continue;      // 秘籍道具不参与存档
+            rec.items[k] = (rec.items[k] || 0) + world.stats.items[k];
+        }
         save.totalScore += world.score;
         save.totalKills += world.kills;
         persist();
@@ -8414,20 +8891,29 @@ ctx.save();
         ctx.restore();
     }
 
+    // 基地标题（火箭上方的「地球 · 家园基地」）：火箭落地 HUB_TITLE_HOLD 秒后开始淡出
+    const HUB_TITLE_HOLD = 3.0, HUB_TITLE_FADE = 0.9;
+    function hubTitleAlpha() {
+        const t = world.landed;
+        if (t < 0) return 1;               // 还没落地（例如直接重进本局）时保持常显
+        if (t <= HUB_TITLE_HOLD) return 1;
+        return clamp(1 - (t - HUB_TITLE_HOLD) / HUB_TITLE_FADE, 0, 1);
+    }
     function drawEarthHub() {
         const p = world.player;
-        // 基地广场：不再铺半透明的地面衬底，只留标题文字
-        const cx = scrX(MAP_W * 0.5), cy = scrY(MAP_H * 0.62);
-        ctx.save();
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        setFont(20, 'bold');
-        ctx.fillStyle = 'rgba(235,245,255,0.92)';
-        ctx.fillText('地球 · 家园基地', cx, cy - 210);
-        setFont(13, 'normal');
-        ctx.fillStyle = 'rgba(200,220,245,0.75)';
-        ctx.fillText('累计分数 ' + save.totalScore + '　累计击杀 ' + save.totalKills, cx, cy - 186);
-        ctx.restore();
+        // 基地广场：不再铺半透明的地面衬底，只留标题文字；累计分数 / 累计击杀已移除
+        const fade = hubTitleAlpha();
+        if (fade > 0) {
+            const cx = scrX(MAP_W * 0.5), cy = scrY(MAP_H * 0.62);
+            ctx.save();
+            ctx.globalAlpha = fade;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            setFont(20, 'bold');
+            ctx.fillStyle = 'rgba(235,245,255,0.92)';
+            ctx.fillText('地球 · 家园基地', cx, cy - 210);
+            ctx.restore();
+        }
         // 补给航天飞船（与石柱一样进入按 y 排序的地面景物队列）
         if (world.supply) {
             const sp = world.supply;
@@ -8685,26 +9171,11 @@ ctx.save();
             ctx.fill();
             ctx.restore();
         }
-        // 翻滚冷却
-        const readyC = p.rollCd <= 0;
-        setFont(12, 'bold');
-        ctx.fillStyle = readyC ? '#7cf07c' : 'rgba(255,190,120,0.9)';
-        ctx.fillText(hintBack() + ' 翻滚', 384, PLAY_H + 19);
-        ctx.fillStyle = 'rgba(255,255,255,0.14)';
-        roundRectPath(442, PLAY_H + 12, 106, 13, 6);
-        ctx.fill();
-        ctx.fillStyle = readyC ? '#7cf07c' : '#ffb45c';
-        // 进度按本次翻滚的实际冷却时长算，而不是固定的基础值（道具压过冷却时才算得准）
-        const rr = readyC ? 1 : (1 - p.rollCd / rollCdTime(p));
-        roundRectPath(442, PLAY_H + 12, Math.max(3, 106 * rr), 13, 6);
-        ctx.fill();
-        setFont(11, 'normal');
-        ctx.fillStyle = 'rgba(200,215,240,0.7)';
-        ctx.fillText(readyC ? '就绪' : p.rollCd.toFixed(1) + 's', 556, PLAY_H + 19);
         ctx.restore();
+        // 翻滚相关的提示与冷却条已从状态栏移除，冷却改由人物脚下的充能条表示
 
         // 等级 / 经验
-        const barX = 596, barW = 260;
+        const barX = 372, barW = 460;
         ctx.save();
         ctx.textAlign = 'left';
         ctx.textBaseline = 'middle';
@@ -8950,6 +9421,7 @@ function drawPlay() {
             drawAstronaut(W / 2, PLAYER_CY, p.dirIdx, p.walkPhase, p.moving, {
                 t: world.t, roll: p.rollT > 0 ? 1 : 0, rollAngle: p.rollAngle,
                 rollProg: 1 - p.rollT / ROLL_TIME,
+                chain: p.chainLv,                      // 电锨翻滚：给翻滚球加上锯齿外圈
                 pkg: world.pkg,
                 faceSide: p.faceSide
             });
@@ -9041,6 +9513,8 @@ function drawPlay() {
             const k = easeOutCubic(clamp(L.t / LAND_DESCENT, 0, 1));
             L.drawY = lerp(gy - 300, gy, k);
         } else {
+            // 触地：从这一刻起累计，基地标题等界面元素据此延后消失
+            world.landed = L.t - LAND_DESCENT;
             if (!L.landedFx) {
                 L.landedFx = true;
                 for (let i = 0; i < 16; i++) {
@@ -9387,3 +9861,4 @@ function drawPlay() {
 </script>
 </body>
 </html>
+
