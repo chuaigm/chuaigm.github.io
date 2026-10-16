@@ -166,13 +166,16 @@
     // 闪避距离 = 按下 K（手柄 B）后人物向当前方向滚动的距离
     const ROLL_DIST_BASE = 150;           // 初始 150px（约 3.3 个身位）
     const ROLL_DIST_STEP = 50;            // 每件「闪避增长」+50
-    // 普通翻滚撞到敌人：把对方弹开一个身位（同一只怪在一次翻滚里只弹一次）
-    const ROLL_PUSH_D = CHAR_S;
+    // 普通翻滚撞到敌人：弹开很远一点并让它硬直一下（同一只怪在一次翻滚里只结算一次）
+    const ROLL_PUSH_D = CHAR_S * 2.6;
+    const ROLL_STUN = 0.55;               // 被弹开的硬直时长（秒）
+    const ROLL_END_R = CHAR_S * 2.2, ROLL_END_D = CHAR_S * 1.4;
     // 电锯翻滚：翻滚距离翻倍、取消弹开，改为对路径上的敌人造成攻击力 × N 的伤害
     const CHAIN_ID = 'chain';
-    const CHAIN_DIST_MUL = 2;             // 翻滚距离 ×2
     const CHAIN_BASE_MUL = 2;             // 首件：攻击力 ×2，之后每件再 +1 倍
-    const CHAIN_HIT_R = CHAR_S * 0.8;     // 路径判定半径：比贴身判定（0.4 身位）稍大
+    const CHAIN_KEEPS_DIST = 1;           // 电锨翻滚不再改动翻滚距离，距离始终等于当前闪避距离
+    const HIT_STUN = 0.2;                 // 被任何攻击打中都会短暂硬直
+    const CHAIN_HIT_R = CHAR_S * 0.8;     // 路径判定半径：比贴身判定（0.4 身位）略大
     const MAX_HP = 8;
     // 各项增益道具的固定增量：都按「基础值的百分之几」给，而不是在当前值上复利叠加
     const RATE_STEP = 0.10;             // 射速：每件降低基础射击间隔的 10%
@@ -3432,7 +3435,9 @@ function drawRollBall(cx, cy, dirIdx, opts) {
         const view = DIR_VIEW[dirIdx];
         const flip = view.sx < 0 ? -1 : 1;
         const d = DIRS[dirIdx];
-        const fx = d.ix * flip, fy = d.iy;       // 翻滚方向在屏幕上的单位向量
+        // 拖影要落在“后方”：滚动方向就是走向，所以用未镜像的 (ix, iy)，
+        // 拿它取反得到所有方向（含向左）都是正确的拖尾；之前乘了 flip 才会在向左时反过来
+        const fx = d.ix, fy = d.iy;
         const chain = opts.chain || 0;
         const R = 24;                           // 球径 ≈ 一个身位（CHAR_S = 46），贴合「团成球」的身形
         const prog = opts.rollProg === undefined ? 0.5 : clamp(opts.rollProg, 0, 1);
@@ -3448,7 +3453,28 @@ function drawRollBall(cx, cy, dirIdx, opts) {
         ctx.fill();
         ctx.restore();
 
-        // 残影：沿翻滚反方向依次淡出
+        // 残影：从起点沿滚动反方向依次淡出，长度随本次翻滚已走过的距离变
+        // 宽度只略小于球体（约 0.9R），使拖影跟在球后而不被完全遮住
+        const GH = 7;                                   // 残影个数
+        const span = (opts.rollDist || ROLL_DIST_BASE) * prog;
+        const gs = span / GH;
+        for (let i = GH; i >= 1; i--) {
+            const fade = i / GH;
+            const a = vis * 0.34 * (1 - fade * 0.72);
+            if (a < 0.005) continue;
+            ctx.save();
+            ctx.globalAlpha = a;
+            ctx.translate(cx - fx * gs * i, cy - fy * gs * i);
+            ctx.rotate(Math.atan2(fy, fx));
+            ctx.fillStyle = '#7cc9f2';
+            ctx.beginPath();
+            ctx.arc(0, 0, R * 0.9, 0, TAU);
+            ctx.fill();
+            ctx.strokeStyle = 'rgba(214,246,255,0.7)';
+            ctx.lineWidth = 1.5;
+            ctx.stroke();
+            ctx.restore();
+        }
         for (let i = 5; i >= 1; i--) {
             const a = vis * 0.26 * (1 - (i - 1) / 6);
             if (a < 0.005) continue;
@@ -3699,7 +3725,7 @@ function drawRollBall(cx, cy, dirIdx, opts) {
         { id: 'boom', name: ITEM_NAMES.boom, color: '#ff9f43', desc: '子弹命中时爆炸：首件解锁爆炸子弹，之后每件使爆炸范围 +20' },
         {
             id: CHAIN_ID, name: ITEM_NAMES[CHAIN_ID], color: '#cfe4ff',
-            desc: '翻滚距离翻倍；取消把敌人弹开的设定，改为对翻滚路径上的敌人造成当前攻击力 ×2 的伤害，重复拾取每件再加 1 倍'
+            desc: '取消把敌人弹开的设定，改为对翻滚路径上的敌人造成当前攻击力 ×2 的伤害并让其硬直，重复拾取每件再加 1 倍（翻滚距离不变）'
         },
         { id: CHEAT_ITEM_ID, name: ITEM_NAMES[CHEAT_ITEM_ID], color: '#ffd24a', desc: '攻击力 +10；拾取范围立刻扩到当前的射击距离（此后射击距离再变也不会带动拾取范围，只有拾取类道具能继续加）；射程内的敌人每 1 秒自动受到一次伤害；重复拾取只加攻击力' }
     ].concat(RELICS.map((r) => ({
@@ -5369,6 +5395,26 @@ ctx.globalCompositeOperation = 'lighter';
             ctx.arc(ex + 3, ey, 3, 0, Math.PI * 2);
             ctx.fill();
         }
+        // 硬直状态：头顶三个小星星置旋，让“被打晕”一眼可辨
+        if (e.stun > 0) {
+            const sa = world.t * 7 + e.ph;
+            for (let i2 = 0; i2 < 3; i2++) {
+                const a2 = sa + i2 * TAU / 3;
+                const sx2 = Math.cos(a2) * e.r * 0.62;
+                const sy2 = -e.r * 1.25 + Math.sin(a2) * 3.2;
+                ctx.globalAlpha = 0.9;
+                ctx.fillStyle = '#fff0a8';
+                ctx.beginPath();
+                ctx.arc(sx2, sy2, 2.2, 0, TAU);
+                ctx.fill();
+                ctx.globalAlpha = 0.45;
+                ctx.fillStyle = '#ffd24a';
+                ctx.beginPath();
+                ctx.arc(sx2, sy2, 4.4, 0, TAU);
+                ctx.fill();
+            }
+            ctx.globalAlpha = 1;
+        }
         ctx.restore();
     }
 
@@ -5733,7 +5779,7 @@ ctx.globalCompositeOperation = 'lighter';
                 // 首件：翻滚距离翻倍、取消弹开、对路径上的敌人造成攻击力 ×2 的伤害；
                 // 之后每件再 +1 倍
                 p.chainLv++;
-                addPopup(p.x, p.y - 30, '电锨翻滚：伤害 ×' + chainMul(p), '#cfe4ff', true);
+                addPopup(p.x, p.y - 30, '电锨翻滚 ×' + chainMul(p), '#cfe4ff', true);
                 break;
             case 'rate': {
                 const old = p.fireCdMs;
@@ -5791,11 +5837,25 @@ function pickupBase(p) { return p.cheat ? p.cheatPickup : PICKUP_BASE; }
     function rollCdMulFor(n) { return Math.max(ROLLCD_MIN, Math.round((1 - ROLLCD_STEP * n) * 100) / 100); }
     function rollCdTime(p) { return ROLL_CD * p.rollCdMul; }
     // 闪避距离：按下 K 后向当前方向滚动的总距离（初始 150，每件闪避增长 +50；电锯翻滚再翻倍）
-function rollDist(p) {
-    const base = ROLL_DIST_BASE + p.dodgeLv * ROLL_DIST_STEP;
-        return p.chainLv > 0 ? base * CHAIN_DIST_MUL : base;
+function rollDist(p) { return ROLL_DIST_BASE + p.dodgeLv * ROLL_DIST_STEP; }
+    // 硬直：被弹开或被攻击打中时短暂停止行为（死了就不管）
+    function stunEnemy(e, t) { if (e.hp > 0) e.stun = Math.max(e.stun || 0, t); }
+    // 翻滚终点的范围性推开：翻滚刚结束的那一帧把周边怪物一弹开并硬直
+    function rollEndPush(p) {
+        for (let i = world.enemies.length - 1; i >= 0; i--) {
+            const e = world.enemies[i];
+            const dx = dX(p.x, e.x), dy = dY(p.y, e.y);
+            const d = Math.hypot(dx, dy);
+            if (d >= ROLL_END_R || d < 0.01) continue;
+            // dx, dy 指向人物，取反才是偏离人物的方向
+            e.x = wrapVal(e.x - dx / d * ROLL_END_D, MAP_W);
+            e.y = wrapVal(e.y - dy / d * ROLL_END_D, MAP_H);
+            e.ang = Math.atan2(dy / d, dx / d);
+            stunEnemy(e, ROLL_STUN);
+            addFx({ kind: 'spark', x: e.x, y: e.y, life: 0.32, max: 0.32, r: 20, col: '#9fd8ff' });
+        }
     }
-    // 电锯翻滚的伤害倍率：首件 ×2，之后每件再 +1 倍
+    // 电锨伤害倍率
     function chainMul(p) { return p.chainLv > 0 ? CHAIN_BASE_MUL + p.chainLv - 1 : 0; }
 
     // J：选用头顶道具（BOSS 击败后依然可以选择已拾取的补给箱）
@@ -5867,7 +5927,7 @@ function relicHurt(f) {
     for (let i = world.enemies.length - 1; i >= 0; i--) {
         const e = world.enemies[i];
         if (!relicHit(f, e)) continue;
-        e.hp -= f.dmg; e.flash = 0.16;
+        e.hp -= f.dmg; e.flash = 0.16; stunEnemy(e, HIT_STUN);
         if (e.hp <= 0) killEnemy(e, i);
     }
 }
@@ -6732,7 +6792,7 @@ function explodeBullet(bu, direct) {
                     const e = world.enemies[j];
                     if (e === z.skip) continue;
                     if (Math.hypot(dX(e.x, z.x), dY(e.y, z.y)) < z.r + e.r) {
-                        e.hp -= z.dmg; e.flash = 0.2;
+                        e.hp -= z.dmg; e.flash = 0.2; stunEnemy(e, HIT_STUN);
                         if (e.hp <= 0) killEnemy(e, j);
                     }
                 }
@@ -6827,6 +6887,7 @@ if (!mv.x && !mv.y || (mv.x * tx + mv.y * ty) > 0) {
             if (Math.hypot(dX(e.x, p.x), dY(e.y, by)) > range) continue;
             e.hp -= p.dmg;
             e.flash = 0.16;
+            stunEnemy(e, HIT_STUN);
             addFx({ kind: 'spark', x: e.x, y: e.y, life: 0.26, max: 0.26, r: 10, col: '#ffd24a' });
             if (e.hp <= 0) killEnemy(e, i);
         }
@@ -6989,6 +7050,8 @@ function bossLevelNeed() { return BOSS_LEVEL_BASE + world.bossKills; }
             p.rollAngle += dt * 13;
             p.x = wrapVal(p.x + p.rollVX * dt, MAP_W);
             p.y = wrapVal(p.y + p.rollVY * dt, MAP_H);
+            // 刚结束的那一帧：在终点周边做一次范围推开，保证终点不会立刻被触到
+            if (p.rollT <= 0) p.rollEnd = true;
         } else if (mv.x || mv.y) {
             const sp = BASE_SPEED * p.speedMul * slow;
             p.x = wrapVal(p.x + mv.x * sp * dt, MAP_W);
@@ -6999,6 +7062,7 @@ function bossLevelNeed() { return BOSS_LEVEL_BASE + world.bossKills; }
             p.walkPhase += dt * (8.5 * sp / BASE_SPEED);
             p.moving = true;
         }
+        if (p.rollEnd) { p.rollEnd = false; rollEndPush(p); }
         // 月球：正面越界翻到背面，背面把人按在实体边界内
         if (world.moonSide === 'far') {
             updateMoonBoundary(dt);
@@ -7060,15 +7124,18 @@ function bossLevelNeed() { return BOSS_LEVEL_BASE + world.bossKills; }
         for (let i = world.enemies.length - 1; i >= 0; i--) {
             const e = world.enemies[i];
             if (e.flash > 0) e.flash -= dt;
+            if (e.stun > 0) e.stun -= dt;    // 硬直中：位置、起手、分离力全部暂停
             const dx = dX(p.x, e.x), dy = dY(p.y, e.y);
             const d = Math.max(1, Math.hypot(dx, dy));
             const wob = Math.sin(world.t * 2.4 + e.ph) * 0.35;
             const nx = dx / d, ny = dy / d;
             const eslow = relicSlowAt(e);      // 水星装备的水洼会拖慢范围内的敌人
-            e.x = wrapVal(e.x + (nx + -ny * wob) * e.speed * dt * eslow, MAP_W);
-            e.y = wrapVal(e.y + (ny + nx * wob) * e.speed * dt * eslow, MAP_H);
+            if (e.stun <= 0) {
+                e.x = wrapVal(e.x + (nx + -ny * wob) * e.speed * dt * eslow, MAP_W);
+                e.y = wrapVal(e.y + (ny + nx * wob) * e.speed * dt * eslow, MAP_H);
+            }
             e.ang = Math.atan2(dy, dx);
-            if (e.kind === 'ranged') {
+            if (e.kind === 'ranged' && e.stun <= 0) {
                 e.cd -= dt;
                 // 场上还有自己的子弹在飞（未消失）时不发射第二发
                 const busy = world.enemyBullets.some(b => b.owner === e);
@@ -7091,10 +7158,9 @@ function bossLevelNeed() { return BOSS_LEVEL_BASE + world.bossKills; }
                     if (p.chainLv > 0) {
                         if (e.rollHit !== p.rollId) {
                             e.rollHit = p.rollId;
-                            const cd = p.dmg * chainMul(p);
-                            e.hp -= cd;
+                            e.hp -= p.dmg * chainMul(p);
+                            stunEnemy(e, HIT_STUN);
                             e.flash = 0.22;
-                            addPopup(e.x, e.y - 22, '-' + cd, '#ffd08a', false);
                             addFx({ kind: 'spark', x: e.x, y: e.y, life: 0.32, max: 0.32, r: 14, col: '#cfe4ff' });
                             if (e.hp <= 0) killEnemy(e, i);
                         }
@@ -7104,7 +7170,9 @@ function bossLevelNeed() { return BOSS_LEVEL_BASE + world.bossKills; }
                         e.x = wrapVal(e.x - nx * ROLL_PUSH_D, MAP_W);
                         e.y = wrapVal(e.y - ny * ROLL_PUSH_D, MAP_H);
                         e.ang = Math.atan2(-ny, -nx);
-                        addFx({ kind: 'spark', x: e.x, y: e.y, life: 0.3, max: 0.3, r: 15, col: '#9fd8ff' });
+                        stunEnemy(e, ROLL_STUN);
+                        addFx({ kind: 'spark', x: e.x, y: e.y, life: 0.34, max: 0.34, r: 22, col: '#9fd8ff' });
+                            addPopup(e.x, e.y - e.r - 14, '被弹开', '#9fd8ff', false);
                     }
                 }
             } else if (d < e.r + CHAR_S * 0.40) {
@@ -7117,6 +7185,7 @@ function bossLevelNeed() { return BOSS_LEVEL_BASE + world.bossKills; }
             for (let k = 0; k < world.enemies.length; k++) {
                 const o = world.enemies[k];
                 if (o === e) continue;
+                if (e.stun > 0 || o.stun > 0) continue;
                 const ox = dX(o.x, e.x), oy = dY(o.y, e.y);
                 const dd = Math.hypot(ox, oy);
                 if (dd < e.r + o.r && dd > 0.01) {
@@ -7135,10 +7204,8 @@ function bossLevelNeed() { return BOSS_LEVEL_BASE + world.bossKills; }
             if (p.rollT > 0 && p.chainLv > 0 && d < b.r + CHAIN_HIT_R && b.rollHit !== p.rollId) {
                 // 电锯翻滚经过 BOSS：一次翻滚只结算一次伤害；BOSS 体积大，不参与弹开
                 b.rollHit = p.rollId;
-                const cd = p.dmg * chainMul(p);
-                b.hp -= cd;
+                b.hp -= p.dmg * chainMul(p);
                 b.flash = 0.22; b.hurtT = 0.22;
-                addPopup(b.x, b.y - 40, '-' + cd, '#ffd08a', false);
                 addFx({ kind: 'spark', x: b.x, y: b.y, life: 0.36, max: 0.36, r: 26, col: '#cfe4ff' });
             } else if (d < b.r + CHAR_S * 0.45) damagePlayer(1, b.x, b.y);
         }
@@ -7172,7 +7239,7 @@ function bossLevelNeed() { return BOSS_LEVEL_BASE + world.bossKills; }
                 if (Math.hypot(dX(e.x, bu.x), dY(e.y, bu.y)) < e.r + bu.r) {
                     if (bu.boom) { explodeBullet(bu, e); if (e.hp <= 0) killEnemy(e, j); }
                     else {
-                        e.hp -= bu.dmg; e.flash = 0.12; sfx('hit');
+                        e.hp -= bu.dmg; e.flash = 0.12; stunEnemy(e, HIT_STUN); sfx('hit');
                         if (e.hp <= 0) killEnemy(e, j);
                     }
                     // 地面类特色装备在命中位置发动
@@ -9421,6 +9488,7 @@ function drawPlay() {
             drawAstronaut(W / 2, PLAYER_CY, p.dirIdx, p.walkPhase, p.moving, {
                 t: world.t, roll: p.rollT > 0 ? 1 : 0, rollAngle: p.rollAngle,
                 rollProg: 1 - p.rollT / ROLL_TIME,
+                rollDist: rollDist(p),
                 chain: p.chainLv,                      // 电锨翻滚：给翻滚球加上锯齿外圈
                 pkg: world.pkg,
                 faceSide: p.faceSide
