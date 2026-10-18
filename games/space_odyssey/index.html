@@ -105,7 +105,7 @@
 (function() {
     'use strict';
 
-    const VERSION = '20261018-1726';
+    const VERSION = '20261018-2141';
 
     const canvas = document.getElementById('gameCanvas');
     const ctx = canvas.getContext('2d');
@@ -405,6 +405,10 @@ const PICKUP_BASE = 50;
         found: function () {
             [659, 880, 1174, 1568].forEach((f, i) => tone({ type: 'triangle', f0: f, dur: 0.22, vol: 0.075, delay: i * 0.1 }));
             noise({ f0: 2600, f1: 800, dur: 0.5, vol: 0.06, filter: 'bandpass' });
+        },
+        frozen: function () {
+            tone({ type: 'sine', f0: 1800, f1: 520, dur: 0.5, vol: 0.07 });
+            noise({ f0: 5200, f1: 1400, dur: 0.6, vol: 0.05, filter: 'bandpass' });
         }
     };
     function sfx(name) { const f = SFX[name]; if (f) { try { f(); } catch (e) { } } }
@@ -611,8 +615,11 @@ const PICKUP_BASE = 50;
         };
     }
     function defaultSave() {
-        const s = { sound: true, touchUI: false, autoFire: true, totalScore: 0, totalKills: 0, planets: {}, loadout: {}, gems: {}, relics: {} };
+        const s = { sound: true, touchUI: false, autoFire: true, totalScore: 0, totalKills: 0, planets: {}, loadout: {}, gems: {}, relics: {}, moonShip: 0 };
         for (const p of savePlanetIds()) s.planets[p] = defaultPlanetRec();
+        for (const p of PLANETS) s.gems[p.id] = 0;
+        s.gems.moon = 0;                      // 月球宝石：不在 PLANETS 里，单独补一条
+        for (const r of RELICS) s.relics[r.id] = 0;
         return s;
     }
     function loadSave() {
@@ -629,8 +636,10 @@ const PICKUP_BASE = 50;
                 base.totalScore = data.totalScore | 0;
                 base.totalKills = data.totalKills | 0;
                 if (data.loadout && typeof data.loadout === 'object') base.loadout = data.loadout;
+                base.moonShip = data.moonShip ? 1 : 0;   // 月球登录飞船是否已从月球归来并常驻地球
                 if (data.gems && typeof data.gems === 'object') {
                     for (const p of PLANETS) base.gems[p.id] = data.gems[p.id] | 0;
+                    base.gems.moon = data.gems.moon | 0;
                 }
                 if (data.relics && typeof data.relics === 'object') {
                     for (const r of RELICS) base.relics[r.id] = data.relics[r.id] ? 1 : 0;
@@ -821,10 +830,39 @@ const PICKUP_BASE = 50;
         ids.push('moon');
         return ids;
     }
+
+    // ==================== 神秘地图（月球宝石归位后的未知之门） ====================
+    // 九颗宝石全部归位后，汇聚的光柱尽头浮出那扇写满问号的门；走进去就是这里。
+    // 一片没有名字的紫色虚空：没有敌人、没有箱子，只有一座回地球的传送门，
+    // 以及写在地上的一句话——这一版的边界，就摆在这里
+    const MYSTERY_ID = 'mystery';
+    const MYSTERY_MAP_W = 2400, MYSTERY_MAP_H = 1800;
+    const MYSTERY_TEXT = '当前版本做到这里，请期待正式版游戏';
+    const MYSTERY_DEF = {
+        id: MYSTERY_ID, name: '？？？', moon: false, ring: null,
+        colA: '#c9b3ff', colB: '#6a4fa8', boss: null,
+        ground: '#241b33', ground2: '#1a1426', grid: '#110c1b', accent: '#c9b3ff',
+        sky: '#05040a', decor: 'void',
+        enemy: null, bossCol: null,
+        ability: null, abilityName: '未知', abilityDesc: '没有战斗，也没有说明'
+    };
     const SUN = { x: 54, y: 336, r: 124 };
     const ORB_DEG = Math.PI / 180;
     const PLANET_BY_ID = {};
     for (const p of PLANETS) PLANET_BY_ID[p.id] = p;
+    // 地球石柱阵上陈列的是「八颗行星 + 月球」共九座，
+    // 而月球不在 PLANETS 里（它不在太阳系轨道上），所以这里补一份陈列用的月球资料
+    const MOON_DISPLAY = {
+        id: 'moon', name: '月球',
+        colA: '#e6ecf7', colB: '#8d93a8',
+        boss: '永夜巨影 · 寂潮',
+        // 石柱上的牢笼与名牌会读这两组配色，月球也要给全，免得关进笼子时取不到
+        enemy: { body: '#aab0c0', dark: '#565b6b', eye: '#8ce6ff' },
+        bossCol: { body: '#9aa2b8', dark: '#3c4152', eye: '#7ff0ff' },
+        ability: 'thunder', abilityName: '永夜落雷', abilityDesc: '暗面雷暴：在落雷预警圈外才会被劈中'
+    };
+    // 陈列 / 战利品侧的统一查表：八颗行星走 PLANET_BY_ID，月球走 MOON_DISPLAY
+    function planetDef(id) { return PLANET_BY_ID[id] || (id === 'moon' ? MOON_DISPLAY : null); }
     // 每颗行星的轨道浮动参数（非常缓慢的上下微动 + 自转）
     for (let i = 0; i < PLANETS.length; i++) {
         const p = PLANETS[i];
@@ -860,14 +898,22 @@ const PICKUP_BASE = 50;
         { id: 'saturn', item: 'relic_saturn', name: '土星装备 · 环刃轮', tag: '旋刃', abil: 'blade', col: '#ffe9b8', cd: 4.0, baseR: 114, stepR: 18, desc: '召唤环绕自身的光环旋刃，切割接触到的敌人' },
         { id: 'uranus', item: 'relic_uranus', name: '天王星装备 · 相贯光矛', tag: '光矛', abil: 'laser', col: '#e6ffff', cd: 3.0, baseR: 280, stepR: 46, desc: '射出贯穿光矛，命中一条直线上的所有敌人' },
         { id: 'neptune', item: 'relic_neptune', name: '海王星装备 · 深渊追迹', tag: '追迹', abil: 'homing', col: '#9fd0ff', cd: 3.4, baseR: 0, stepR: 0, desc: '射出四枚追踪冰弹，自动咬住敌人' },
-        { id: 'pluto', item: 'relic_pluto', name: '冥王星装备 · 冥府脉冲', tag: '脉冲', abil: 'summon', col: '#c58cff', cd: 3.8, baseR: 34, stepR: 18, desc: '放出扩散的黑暗脉冲，扫过之处尽数受伤' }
+        { id: 'pluto', item: 'relic_pluto', name: '冥王星装备 · 冥府脉冲', tag: '脉冲', abil: 'summon', col: '#c58cff', cd: 3.8, baseR: 34, stepR: 18, desc: '放出扩散的黑暗脉冲，扫过之处尽数受伤' },
+        { id: 'moon', item: 'relic_moon', name: '月球装备 · 静海凝滞', tag: '凝滞', abil: 'freeze', col: '#bfe6ff', cd: 6.5, freeze: 1.5, baseR: 0, stepR: 0, desc: '每隔一段时间，把场上所有敌人连同 BOSS 一起冻住 1.5 秒' }
     ];
     const RELIC_BY_ITEM = {};
     const RELIC_BY_ID = {};
     for (const r of RELICS) { RELIC_BY_ITEM[r.item] = r; RELIC_BY_ID[r.id] = r; ITEM_NAMES[r.item] = r.name; }
     const RELIC_IDS = RELICS.map((r) => r.item);
     function gemItemId(pid) { return 'gem_' + pid; }
-    function gemName(pid) { return (PLANET_BY_ID[pid] ? PLANET_BY_ID[pid].name : '未知') + '宝石'; }
+    function gemName(pid) { return (planetDef(pid) ? planetDef(pid).name : '未知') + '宝石'; }
+    // 归位在石柱阵上的全部宝石：八颗行星 + 月球，共九颗
+    function gemTotalAll() {
+        let n = 0;
+        for (const p of PLANETS) if (!p.home && save.gems[p.id] > 0) n++;
+        if (save.gems.moon > 0) n++;
+        return n;
+    }
 
     // 必须在 RELICS / ITEM_NAMES 等存档用到的表都定义好之后再读档，
     // 否则 loadSave 内部会撞上 const 的暂时性死区而抛错，被 catch 静默吞掉导致读档残缺
@@ -2281,13 +2327,15 @@ const PICKUP_BASE = 50;
         else if (ix > 0.01) p.faceSide = 1;
     }
 
-    // planetId: 行星 id，或 'moon' + side（'near' 正面 / 'far' 背面）
+    // planetId: 行星 id，或 'moon' + side（'near' 正面 / 'far' 背面），或 'mystery' 神秘地图
     function newWorld(planetId, side) {
-        const planet = planetId === 'moon' ? moonDef(side) : PLANET_BY_ID[planetId];
+        const planet = planetId === 'moon' ? moonDef(side)
+            : (planetId === MYSTERY_ID ? MYSTERY_DEF : PLANET_BY_ID[planetId]);
         // 月球两张图都只有正常的一半，且四面都不环绕；行星维持原来的尺寸与环接
         // 地球是一座放大到两倍大的岛，四周要留足一圈海水，地图也跟着放大一倍：
         // 否则岛的南北海岸会在地图环接缝处贴到了一起，站在东岸能看见西岸的树漂在海上
-        if (planet.moon) { MAP_W = MOON_MAP_W; MAP_H = MOON_MAP_H; MAP_BOUNDED = true; }
+        if (planetId === MYSTERY_ID) { MAP_W = MYSTERY_MAP_W; MAP_H = MYSTERY_MAP_H; MAP_BOUNDED = true; }
+        else if (planet.moon) { MAP_W = MOON_MAP_W; MAP_H = MOON_MAP_H; MAP_BOUNDED = true; }
         else if (planet.home) { MAP_W = MAP_W_BASE * 2; MAP_H = MAP_H_BASE * 2; MAP_BOUNDED = false; }
         else { MAP_W = MAP_W_BASE; MAP_H = MAP_H_BASE; MAP_BOUNDED = false; }
         const startX = MAP_W * 0.5;
@@ -2321,7 +2369,7 @@ const PICKUP_BASE = 50;
             enemies: [], enemyBullets: [], bullets: [], orbs: [], packages: [],
             zones: [], blades: [], beams: [], fx: [], popups: [], marks: [], blasts: [],
             pend: [], warns: [],
-            rFx: [], relicT: {},
+            rFx: [], relicT: {}, freezeT: 0,
             beacon: null, hidden: null, found: null,
             dig: { cd: 0, dust: 0 }, dust: [], pits: [],
             pkg: null, pkgQueue: [], pkgSel: 0, pkgTimer: 0,
@@ -2330,12 +2378,14 @@ const PICKUP_BASE = 50;
             slowFactor: 1,
             stats: { weapons: { pistol: 0 }, items: {} },
             supply: null, supplyNear: false,
+            moonShip: null,                 // 地球上的月球登录飞船停放点
+            homePortal: null,              // 神秘地图里通往地球的传送门
             // 月球：正面无战斗、背面有 BOSS；near/far 决定地图边界的行为
             moonSide: planet.moon ? side : null,
             noCombat: !!(planet.moon && side !== 'far'),
-            // quiet = 本局没有战斗（家园基地 / 月球正面）：凡是原来判断 planet.home 的地方都改看它
-            quiet: !!(planet.home || (planet.moon && side !== 'far')),
-            edgeHit: 0, fade: 0,
+            // quiet = 本局没有战斗（家园基地 / 月球正面 / 神秘地图）：凡是原来判断 planet.home 的地方都改看它
+            quiet: !!(planet.home || planetId === MYSTERY_ID || (planet.moon && side !== 'far')),
+            edgeHit: 0, fade: 0, hitEdge: false,
             landed: -1,        // 火箭触地后经过的秒数（-1 = 还没触地）
             inv: { on: false, ai: 0, c: 0, r: 0, sw: false, cheat: [], msg: '', msgT: 0 },
             recorded: false,
@@ -2410,14 +2460,17 @@ const PICKUP_BASE = 50;
         ctx.strokeStyle = 'rgba(150,120,255,' + (0.22 * pulse) + ')';
         ctx.shadowColor = 'rgba(170,140,255,0.9)';
         ctx.shadowBlur = 22;
+        // 墙画在真正挡住人的那条线上（人物被按在 MOON_EDGE 处），
+        // 不再画在地图外沿——否则两者之间会空出四十多像素，看起来像「推着走却过不去」
+        const M = MOON_EDGE;
         ctx.beginPath();
-        ctx.rect(x0 + 3, y0 + 3, MAP_W - 6, MAP_H - 6);
+        ctx.rect(x0 + M - 2, y0 + M - 2, MAP_W - (M - 2) * 2, MAP_H - (M - 2) * 2);
         ctx.stroke();
         ctx.shadowBlur = 0;
         ctx.lineWidth = 1.5;
         ctx.strokeStyle = 'rgba(210,195,255,' + (0.55 * pulse) + ')';
         ctx.beginPath();
-        ctx.rect(x0 + 1, y0 + 1, MAP_W - 2, MAP_H - 2);
+        ctx.rect(x0 + M - 5, y0 + M - 5, MAP_W - (M - 5) * 2, MAP_H - (M - 5) * 2);
         ctx.stroke();
         // 撞墙时那一侧闪一下
         const hit = world.edgeHit > 0 ? world.edgeHit / 0.3 : 0;
@@ -2426,10 +2479,10 @@ const PICKUP_BASE = 50;
             ctx.strokeStyle = 'rgba(255,150,170,' + (0.5 * hit) + ')';
             ctx.lineWidth = 10;
             ctx.beginPath();
-            if (Math.abs(p.x - MOON_EDGE) < 2) { ctx.moveTo(x0 + 5, y0); ctx.lineTo(x0 + 5, y0 + MAP_H); }
-            if (Math.abs(p.x - (MAP_W - MOON_EDGE)) < 2) { ctx.moveTo(x1 - 5, y0); ctx.lineTo(x1 - 5, y0 + MAP_H); }
-            if (Math.abs(p.y - MOON_EDGE) < 2) { ctx.moveTo(x0, y0 + 5); ctx.lineTo(x0 + MAP_W, y0 + 5); }
-            if (Math.abs(p.y - (MAP_H - MOON_EDGE)) < 2) { ctx.moveTo(x0, y1 - 5); ctx.lineTo(x0 + MAP_W, y1 - 5); }
+            if (Math.abs(p.x - MOON_EDGE) < 2) { ctx.moveTo(x0 + M - 2, y0 + M); ctx.lineTo(x0 + M - 2, y0 + MAP_H - M); }
+            if (Math.abs(p.x - (MAP_W - MOON_EDGE)) < 2) { ctx.moveTo(x1 - M + 2, y0 + M); ctx.lineTo(x1 - M + 2, y0 + MAP_H - M); }
+            if (Math.abs(p.y - MOON_EDGE) < 2) { ctx.moveTo(x0 + M, y0 + M - 2); ctx.lineTo(x0 + MAP_W - M, y0 + M - 2); }
+            if (Math.abs(p.y - (MAP_H - MOON_EDGE)) < 2) { ctx.moveTo(x0 + M, y1 - M + 2); ctx.lineTo(x0 + MAP_W - M, y1 - M + 2); }
             ctx.stroke();
         }
         ctx.restore();
@@ -3986,6 +4039,27 @@ function drawRollBall(cx, cy, dirIdx, opts) {
                 ctx.closePath();
                 ctx.fill();
                 break;
+            case 'freeze':                       // 静海凝滞：六角雪花
+                ctx.lineWidth = 2.1;
+                for (let i = 0; i < 3; i++) {
+                    const a = i * Math.PI / 3;
+                    ctx.beginPath();
+                    ctx.moveTo(-Math.cos(a) * 12, -Math.sin(a) * 12);
+                    ctx.lineTo(Math.cos(a) * 12, Math.sin(a) * 12);
+                    ctx.stroke();
+                }
+                ctx.lineWidth = 1.7;
+                for (let i = 0; i < 6; i++) {
+                    const a = i * Math.PI / 3;
+                    const bx = Math.cos(a) * 8, by = Math.sin(a) * 8;
+                    ctx.beginPath();
+                    ctx.moveTo(bx, by);
+                    ctx.lineTo(bx + Math.cos(a - 0.7) * 4, by + Math.sin(a - 0.7) * 4);
+                    ctx.moveTo(bx, by);
+                    ctx.lineTo(bx + Math.cos(a + 0.7) * 4, by + Math.sin(a + 0.7) * 4);
+                    ctx.stroke();
+                }
+                break;
             default:                            // 冥府召唤：扩散脉冲
                 for (let i = 0; i < 3; i++) {
                     ctx.lineWidth = 2.4 - i * 0.5;
@@ -4002,7 +4076,7 @@ function drawRollBall(cx, cy, dirIdx, opts) {
     }
     // 星球宝石图标：与所属星球同色的多面结晶
     function drawGemIconBody(pid) {
-        const pl = PLANET_BY_ID[pid];
+        const pl = planetDef(pid);
         const c1 = pl ? pl.colA : '#8fd8ff';
         const c2 = pl ? pl.colB : '#3f8f95';
         ctx.save();
@@ -5075,7 +5149,8 @@ const INV_SW_GAP = 14;                  // 名称 / 轨道 / 状态文字之间�
         for (let i = 0; i < RELICS.length; i++) {
             const r = RELICS[i];
             const lv = world.player.relics[r.id];
-            if (lv > 0) extras.push([r.tag + '·' + PLANET_BY_ID[r.id].name, relicRadius(r, lv)]);
+            const rd = planetDef(r.id);
+            if (lv > 0 && rd) extras.push([r.tag + '·' + rd.name, relicRadius(r, lv)]);
         }
         const rowH = 19, divH = extras.length ? 15 : 0;
         const wBox = 148, hBox = 18 + rows.length * rowH + divH + extras.length * rowH;
@@ -5431,6 +5506,26 @@ const INV_SW_GAP = 14;                  // 名称 / 轨道 / 状态文字之间�
             }
             ctx.globalAlpha = 1;
         }
+        // 静海凝滞：结霜的外壳 + 身周几道冰棱，一眼看出它是被冻住的而不是普通硬直
+        if (e.fz > 0) {
+            const fk = clamp(e.fz / 0.6, 0, 1);
+            ctx.globalAlpha = 0.55 * fk;
+            ctx.fillStyle = '#cfeaff';
+            ctx.beginPath();
+            ctx.ellipse(0, -e.r * 0.1, e.r * 1.5, e.r * 1.7, 0, 0, TAU);
+            ctx.fill();
+            ctx.globalAlpha = 0.85 * fk;
+            ctx.strokeStyle = '#ffffff';
+            ctx.lineWidth = 1.6;
+            for (let i2 = 0; i2 < 5; i2++) {
+                const a2 = i2 * TAU / 5 + e.ph;
+                const bx2 = Math.cos(a2) * e.r * 1.25, by2 = Math.sin(a2) * e.r * 1.45 - 2;
+                ctx.beginPath();
+                ctx.moveTo(bx2 - 3.4, by2); ctx.lineTo(bx2, by2 - 6); ctx.lineTo(bx2 + 3.4, by2);
+                ctx.stroke();
+            }
+            ctx.globalAlpha = 1;
+        }
         ctx.restore();
     }
 
@@ -5641,6 +5736,13 @@ const INV_SW_GAP = 14;                  // 名称 / 轨道 / 状态文字之间�
             if (b.hurtT > 0) b.hurtT -= dt;
             return;
         }
+        // 静海凝滞：被冻住时整个 BOSS 停摆（预警队列同样冻结，解冻后继续）
+        if (b.fz > 0) {
+            b.fz -= dt;
+            if (b.flash > 0) b.flash -= dt;
+            if (b.hurtT > 0) b.hurtT -= dt;
+            return;
+        }
         const p = world.player;
         const dx = dX(p.x, b.x), dy = dY(p.y, b.y);
         const d = Math.max(1, Math.hypot(dx, dy));
@@ -5755,12 +5857,16 @@ const INV_SW_GAP = 14;                  // 名称 / 轨道 / 状态文字之间�
     function applyItem(id) {
         const p = world.player;
         world.stats.items[id] = (world.stats.items[id] || 0) + 1;
-        // 星球特色装备：首次获得直接生效，重复拾取逐级扩大特效范围
+        // 星球特色装备：首次获得直接生效，重复拾取逐级扩大特效范围（或缩短冷却）
         const relic = RELIC_BY_ITEM[id];
         if (relic) {
             const lv = (p.relics[relic.id] || 0) + 1;
             p.relics[relic.id] = lv;
-            addPopup(p.x, p.y - 30, lv === 1 ? ('获得 ' + relic.name + '！') : (relic.tag + '范围 +' + relic.stepR), relic.col, true);
+            if (relic.stepR <= 0 && lv > 1) relic.cd = Math.max(2.5, relic.cd - 0.5);
+            // 凝滞这类没有「作用半径」的装备，重复拾取改为缩短冷却
+            const more = relic.stepR > 0 ? (relic.tag + '范围 +' + relic.stepR)
+                : (relic.tag + '冷却 -0.5s');
+            addPopup(p.x, p.y - 30, lv === 1 ? ('获得 ' + relic.name + '！') : more, relic.col, true);
             if (lv > 1) {
                 for (let i = 0; i < 8; i++) {
                     addFx({ kind: 'spark', x: p.x + rand(-22, 22), y: p.y + rand(-18, 18), life: 0.4, max: 0.4, r: rand(3, 7), col: relic.col });
@@ -5856,6 +5962,23 @@ function pickupBase(p) { return p.cheat ? p.cheatPickup : PICKUP_BASE; }
 function rollDist(p) { return ROLL_DIST_BASE + p.dodgeLv * ROLL_DIST_STEP; }
     // 硬直：被弹开或被攻击打中时短暂停止行为（死了就不管）
     function stunEnemy(e, t) { if (e.hp > 0) e.stun = Math.max(e.stun || 0, Math.max(t, ROLL_PUSH_TIME + 0.08)); }
+    // 静海凝滞（月球装备）：把场上所有敌人连同 BOSS 一起冻在原地。
+    // 借敌人现成的硬直字段来停摆，额外记一份 fz 供绘制结霜效果
+    function freezeAllEnemies(t) {
+        let n = 0;
+        for (let i = 0; i < world.enemies.length; i++) {
+            const e = world.enemies[i];
+            if (e.hp <= 0) continue;
+            e.stun = Math.max(e.stun || 0, t);
+            e.fz = t;
+            n++;
+        }
+        if (world.boss && !world.bossDefeated) { world.boss.fz = t; n++; }
+        world.freezeT = t;
+        addPopup(world.player.x, world.player.y - 74, '静海凝滞 · 全场静止 ' + t.toFixed(1) + ' 秒', '#bfe6ff', true);
+        sfx('frozen');
+        return n;
+    }
     // 被弹开：不是一款落地，而是一段逐步减速的推退（总位移约 dist），并带硬直
     function knockEnemy(e, dx, dy, dist) {
         const d = Math.hypot(dx, dy);
@@ -6000,6 +6123,12 @@ function relicTarget() { return world.enemies.length ? pick(world.enemies) : nul
         const by = playerBodyY();
         const dmg = Math.max(1, p.dmg);
         const R = relicRadius(r, lv);
+        // 静海凝滞不挑目标：场上只剩 BOSS 时也要能冻住，所以放在 tgt 判定之前
+        if (r.abil === 'freeze') {
+            freezeAllEnemies(r.freeze || 1.5);
+            world.rFx.push({ shape: 'freeze', abil: r.abil, col: r.col, x: p.x, y: by, r: 0, life: 0.9, dmg: 0, tick: 0 });
+            return;
+        }
         const tgt = relicTarget();
         if (!tgt) return;
         switch (r.abil) {
@@ -6059,9 +6188,10 @@ function triggerRelics() {
     }
 }
 function updateRelicFx(dt) {
-    for (const k in world.relicT) {
-        if (world.relicT[k] > 0) world.relicT[k] -= dt;
-    }
+        for (const k in world.relicT) {
+            if (world.relicT[k] > 0) world.relicT[k] -= dt;
+        }
+        if (world.freezeT > 0) world.freezeT = Math.max(0, world.freezeT - dt);
     for (let i = world.rFx.length - 1; i >= 0; i--) {
         const f = world.rFx[i];
         f.life -= dt;
@@ -6084,7 +6214,23 @@ function drawRelicFx() {
         const pulse = 0.5 + 0.5 * Math.sin(world.t * 6 + (f.t || 0) * 2);
         ctx.save();
         ctx.translate(x, y);
-        if (f.shape === 'circle') {
+        if (f.shape === 'freeze') {
+            // 凝滞：一圈从人物身上炸开的冰蓝霜环，收尾时正好把敌人全部冻住
+            const k = 1 - clamp(f.life / 0.9, 0, 1);
+            const rr = 40 + 320 * k;
+            ctx.strokeStyle = hexA(f.col, 0.55 * (1 - k));
+            ctx.lineWidth = 5 * (1 - k) + 1;
+            ctx.beginPath(); ctx.ellipse(0, 0, rr, rr * 0.62, 0, 0, TAU); ctx.stroke();
+            ctx.strokeStyle = hexA('#ffffff', 0.4 * (1 - k));
+            ctx.lineWidth = 1.6;
+            for (let i = 0; i < 6; i++) {
+                const a = i / 6 * TAU + k;
+                ctx.beginPath();
+                ctx.moveTo(Math.cos(a) * rr * 0.72, Math.sin(a) * rr * 0.45);
+                ctx.lineTo(Math.cos(a) * rr, Math.sin(a) * rr * 0.62);
+                ctx.stroke();
+            }
+        } else if (f.shape === 'circle') {
             const g = ctx.createRadialGradient(0, 0, f.r * 0.15, 0, 0, f.r);
             g.addColorStop(0, hexA(f.col, 0.30 * fade));
             g.addColorStop(0.7, hexA(f.col, 0.18 * fade));
@@ -7070,34 +7216,43 @@ function bossLevelNeed() { return BOSS_LEVEL_BASE + world.bossKills; }
         // 移动
         const mv = moveVector();
         p.moving = false;
+        // 位移积分：月球这类不环绕的地图必须夹在实体边界内，绝不能先环绕再夹——
+        // 单帧步长一旦超过边界宽度（掉帧时的翻滚最容易），人物会瞬间弹到对面边界上
+        const fromX = p.x, fromY = p.y;
+        world.hitEdge = false;
         if (p.rollT > 0) {
             p.rollT -= dt;
             p.rollAngle += dt * 13;
-            p.x = wrapVal(p.x + p.rollVX * dt, MAP_W);
-            p.y = wrapVal(p.y + p.rollVY * dt, MAP_H);
+            p.x = stepPos(p.x, p.rollVX * dt, MAP_W);
+            p.y = stepPos(p.y, p.rollVY * dt, MAP_H);
             // 刚结束的那一帧：在终点周边做一次范围推开，保证终点不会立刻被触到
             if (p.rollT <= 0) p.rollEnd = true;
         } else if (mv.x || mv.y) {
             const sp = BASE_SPEED * p.speedMul * slow;
-            p.x = wrapVal(p.x + mv.x * sp * dt, MAP_W);
-            p.y = wrapVal(p.y + mv.y * sp * dt, MAP_H);
+            p.x = stepPos(p.x, mv.x * sp * dt, MAP_W);
+            p.y = stepPos(p.y, mv.y * sp * dt, MAP_H);
             p.dirIdx = dirFromVec(mv.x, mv.y);
             p.moveDirIdx = dirFromVec(mv.x, mv.y);
             rememberFaceSide(p, p.dirIdx);
-            p.walkPhase += dt * (8.5 * sp / BASE_SPEED);
+        }
+        // 位置真的变了才算「在走」：被边界按住的那些帧不再推进步态，
+        // 否则人物会贴着能量墙原地空跑（推着走时镜头不动，只有腿在动）
+        if ((p.x !== fromX || p.y !== fromY) && p.rollT <= 0) {
+            p.walkPhase += dt * (8.5 * BASE_SPEED * p.speedMul * slow / BASE_SPEED);
             p.moving = true;
         }
         if (p.rollEnd) { p.rollEnd = false; rollEndPush(p); }
         // 地球就是一座岛：人物只能沿沙滩走，不能进入大海
         if (world.island) clampToIsland(p);
-        // 月球：正面越界翻到背面，背面把人按在实体边界内
-        if (world.moonSide === 'far') {
-            updateMoonBoundary(dt);
+        // 月球两面都有实体边界：先统一把人按在边界内，正面的人顶到边界即翻到背面
+        if (MAP_BOUNDED) {
+            const blocked = updateMoonBoundary(dt);
             clampWorldObjects();
-        } else if (world.moonSide === 'near' && moonNearEdge()) {
-            // 翻面会整个换掉 world，必须立刻退出这一帧，不能再用旧的人物对象往下跑
-            startMoonSide('far');
-            return;
+            if (world.moonSide === 'near' && blocked) {
+                // 翻面会整个换掉 world，必须立刻退出这一帧，不能再用旧的人物对象往下跑
+                startMoonSide('far');
+                return;
+            }
         }
         if (p.rollCd > 0) p.rollCd -= dt;
         if (p.invuln > 0) p.invuln -= dt;
@@ -7171,6 +7326,8 @@ function bossLevelNeed() { return BOSS_LEVEL_BASE + world.bossKills; }
             // 硬直时长统一归零（旧存档或其他路径生成的怪物可能没这个字段）
             const stun = e.stun || 0;
             if (stun > 0) e.stun = stun - dt;    // 硬直中：位置、起手、分离力全部暂停
+            // 静海凝滞的冻结余韵：只用来绘制结霜，行为上复用 stun
+            if (e.fz > 0) e.fz = Math.max(0, e.fz - dt);
             // 被弹开的推退：每帧按当前速度移动，速度随剩余时长线性衰减（渐进减速直到停下）
             if (e.pushT > 0) {
                 // 从原位置沿推退方向平滑地滑到目标位置，速度逐帧减快、最后停下
@@ -7560,14 +7717,29 @@ function bossLevelNeed() { return BOSS_LEVEL_BASE + world.bossKills; }
         // 月球背面在 BOSS 倒下之前不放人走（正面根本没有火箭）
         if ((world.planet.home || world.bossDefeated) && world.moonSide !== 'near') {
             const dr = Math.hypot(dX(world.rocket.x, p.x), dY(world.rocket.y, p.y));
-            if (dr < 92) { launchSequence(); return; }
+            if (dr < 92) {
+                // 月球背面打完 BOSS 回来：不再是飞去太阳系，而是直接返回地球，
+                // 由月球登录飞船降落在十二柱上方的空地上并从此常驻
+                if (world.moonSide === 'far') returnHomeFromMoon();
+                else launchSequence();
+                return;
+            }
+        }
+        // 月球登录飞船：登船只往返月球正面
+        if (world.moonShip) {
+            const ds = Math.hypot(dX(world.moonShip.x, p.x), dY(world.moonShip.y, p.y));
+            if (ds < 120) { moonShipLaunch(); return; }
         }
         handleAction();
         // 拾取信标之后，按确认键尝试挖掘
         if (world.beacon && world.beacon.held) tryDig();
-        // 地球火箭头顶的传送门：八颗行星宝石集齐后开启
+        // 地球火箭头顶的未知之门：九颗宝石（月球宝石也归位）之后开启
         if (world.portal && Math.hypot(dX(world.portal.x, p.x), dY(world.portal.y, p.y)) < PORTAL_R) {
-            enterMoonNear();
+            startMystery();
+        }
+        // 神秘地图里唯一的门：按确认键回到地球
+        if (world.homePortal && Math.hypot(dX(world.homePortal.x, p.x), dY(world.homePortal.y, p.y)) < PORTAL_R) {
+            returnEarthFromMystery();
         }
     }
 
@@ -7576,11 +7748,67 @@ function bossLevelNeed() { return BOSS_LEVEL_BASE + world.bossKills; }
     const MOON_VOID = 120;      // 镜头最多越过边界的距离，好让界外的黑看得见
     const MOON_FADE = 0.55;      // 换面时的黑场时长
     const PORTAL_R = 74;         // 传送门可进入的半径
+    const SHIP_BOARD_R = 120;    // 月球登录飞船的登船半径
 
-    // 走进传送门：离开地球，前往月球正面
-    function enterMoonNear() {
+    // 登上地球的月球登录飞船：起飞动画与火箭同款，收尾直接落在月球正面
+    function moonShipLaunch() {
+        launchSequence('ship');
+    }
+    // 月球背面 → 地球：先放一段和火箭相同的升空动画，再切到地球的着陆动画
+    function returnHomeFromMoon() {
+        launchSequence('home');
+    }
+    // 从月球归来：地球 · 十二柱上方的空地，月球登录飞船自此常驻
+    function startMoonHome() {
+        recordRun(true);
+        // 打过月球 BOSS 就算这艘飞船已经「到家」：此后无论何时回地球，它都停在上面那块空地
+        if (!save.moonShip) { save.moonShip = 1; persist(); }
+        pendingPlanet = null;
+        world = newWorld('earth');
+        buildEarthLayout();
+        const ms = world.moonShip;
+        world.landing = {
+            t: 0, dur: 3.5, done: false, landedFx: false,
+            x: ms.x, y: ms.y, drawY: 0, moon: true
+        };
+        scene = 'play';
+        sceneT = 0;
+        world.fade = MOON_FADE;
+        sfx('warp');
+    }
+    // 走进未知之门：离开地球，进入神秘地图
+    function startMystery() {
         recordRun(false);
-        startMoonSide('near');
+        pendingPlanet = null;
+        world = newWorld(MYSTERY_ID);
+        const px = MAP_W * 0.5, py = MAP_H * 0.52;
+        world.homePortal = { x: px, y: py };
+        world.player.x = px;
+        world.player.y = py + 190;
+        world.cam.x = world.player.x;
+        world.cam.y = world.player.y;
+        scene = 'play';
+        sceneT = 0;
+        world.fade = MOON_FADE;
+        sfx('warp');
+        addPopup(world.player.x, world.player.y - 58, '这里没有名字', '#c9b3ff', true);
+    }
+    // 神秘地图里的传送门：回到地球的十二柱星环
+    function returnEarthFromMystery() {
+        recordRun(false);
+        pendingPlanet = null;
+        world = newWorld('earth');
+        buildEarthLayout();
+        const spot = colPortalSpot();
+        world.player.x = spot.x;
+        world.player.y = spot.y + 130;
+        world.cam.x = world.player.x;
+        world.cam.y = world.player.y;
+        scene = 'play';
+        sceneT = 0;
+        world.fade = MOON_FADE;
+        sfx('warp');
+        addPopup(world.player.x, world.player.y - 58, '回到地球 · 十二柱星环', '#cfe4ff', true);
     }
     // 月球正面走出任意一条边界 = 翻到背面
     function startMoonSide(side) {
@@ -7601,28 +7829,27 @@ function bossLevelNeed() { return BOSS_LEVEL_BASE + world.bossKills; }
             world.player.y = ly + 60;
             world.cam.x = world.player.x;
             world.cam.y = world.player.y;
-            addPopup(world.player.x, world.player.y - 58, '从任意一条边界走出去即可抵达背面', '#cfe4ff', true);
+            addPopup(world.player.x, world.player.y - 58, '走到任意一条边界即可抵达背面', '#cfe4ff', true);
         }
         scene = 'play';
         sceneT = 0;
         world.fade = MOON_FADE;      // 换面后由黑淡入
         sfx('warp');
     }
-    // 月球正面：人物是否已经走出任意一条边界
-    function moonNearEdge() {
-        const p = world.player;
-        const M = MOON_EDGE;
-        return p.x < M || p.x > MAP_W - M || p.y < M || p.y > MAP_H - M;
-    }
-    // 月球背面的边界处理：实体边界，直接把人按回去
+    // 月球边界的实体处理：两面共用。人物一律按在 MOON_EDGE 之内，
+    // 越界的那一步就地夹住并记一次撞墙（返回 true 表示这一帧顶到了边界）。
+    // 正面顶到边界即翻到背面，因此不再需要「走出边界」的额外判定：
+    // 只要人物真的想往外走就会被顶住，翻面永远跟得上，不会出现推着墙却走不过去的僵持段
     function updateMoonBoundary(dt) {
         const p = world.player;
         const M = MOON_EDGE;
         if (world.edgeHit > 0) world.edgeHit = Math.max(0, world.edgeHit - dt);
         const bx = clamp(p.x, M, MAP_W - M);
         const by = clamp(p.y, M, MAP_H - M);
-        if (bx !== p.x || by !== p.y) world.edgeHit = 0.3;
+        const blocked = world.hitEdge || bx !== p.x || by !== p.y;
+        if (blocked) world.edgeHit = 0.3;
         p.x = bx; p.y = by;
+        return blocked;
     }
     // 不环绕的地图（月球）：越界的东西一律收掉 / 拉回，避免飞出地图后判定全乱
     function clampWorldObjects() {
@@ -7645,17 +7872,35 @@ function bossLevelNeed() { return BOSS_LEVEL_BASE + world.bossKills; }
             o.x = clamp(o.x, M, MAP_W - M);
             o.y = clamp(o.y, M, MAP_H - M);
         }
+        // 信标 / 埋藏点 / 挖出来的东西都是按环绕坐标生成的，落在界外那圈虚空里就永远走不到，
+        // 月球背面挖宝必须把它们一起收进边界内
+        for (const o of [world.beacon, world.hidden, world.found]) {
+            if (!o) continue;
+            o.x = clamp(o.x, M, MAP_W - M);
+            o.y = clamp(o.y, M, MAP_H - M);
+        }
         if (world.boss) {
             world.boss.x = clamp(world.boss.x, M + world.boss.r, MAP_W - M - world.boss.r);
             world.boss.y = clamp(world.boss.y, M + world.boss.r, MAP_H - M - world.boss.r);
         }
+    }
+    // 单轴位移：环绕地图取模，不环绕的地图（月球 / 神秘地图）夹在实体边界内。
+// 同时把「这一帧被边界顶住」记进 world.hitEdge —— 夹取发生在积分的时候，
+// 事后再比一次坐标是比不出区别的（坐标早已被夹到位），边界事件必须当场记下
+    function stepPos(v, d, size) {
+        if (!MAP_BOUNDED) return wrapVal(v + d, size);
+        const raw = v + d;
+        const c = clamp(raw, MOON_EDGE, size - MOON_EDGE);
+        if (c !== raw) world.hitEdge = true;
+        return c;
     }
 
     function recordRun(cleared) {
         if (world.recorded) return;
         world.recorded = true;
         const id = world.planet.id;
-        const rec = save.planets[id];
+        // 神秘地图不在存档表里：按需补一条战绩记录，免得整段流程被一条 undefined 打断
+        const rec = save.planets[id] || (save.planets[id] = defaultPlanetRec());
         rec.runs++;
         rec.kills += world.kills;
         rec.totalScore += world.score;
@@ -8351,6 +8596,169 @@ function bossLevelNeed() { return BOSS_LEVEL_BASE + world.bossKills; }
         }
     }
 
+    // ==================== 地球：月球登录飞船 ====================
+    // 八颗行星宝石集齐后降落在十二柱上方的空地上；它比补给飞船小得多，
+    // 造型也不同：上下两级的登月舱 + 金箔隔热层 + 碟形天线 + 爬梯，
+    // 整体只有补给飞船的一半大，靠「细腿 + 方舱 + 碟形天线」一眼认出是登月器而不是货船
+    const MOONSHIP_SCALE = 0.62;
+    function drawMoonShipAt(x, y, t, flame) {
+        const pulse = 0.5 + 0.5 * Math.sin(t * 2.2);
+        ctx.save();
+        ctx.translate(x, y);
+        ctx.scale(MOONSHIP_SCALE, MOONSHIP_SCALE);
+        // 地面投影
+        ctx.fillStyle = 'rgba(0,0,0,0.34)';
+        ctx.beginPath();
+        ctx.ellipse(5, 34, 74, 19, 0, 0, TAU);
+        ctx.fill();
+        // 尾焰（起飞时才有）
+        if (flame > 0) {
+            const fl = 26 + 22 * flame + 6 * Math.sin(t * 20);
+            const fg = ctx.createLinearGradient(0, 8, 0, 8 + fl);
+            fg.addColorStop(0, 'rgba(255,248,220,0.9)');
+            fg.addColorStop(0.4, 'rgba(255,196,110,0.5)');
+            fg.addColorStop(1, 'rgba(255,120,50,0)');
+            ctx.fillStyle = fg;
+            ctx.beginPath();
+            ctx.moveTo(-9, 6);
+            ctx.quadraticCurveTo(0, 8 + fl, 9, 6);
+            ctx.closePath();
+            ctx.fill();
+        }
+        // 四条细支腿 + 脚垫
+        ctx.lineCap = 'round';
+        for (let s = -1; s <= 1; s += 2) {
+            ctx.strokeStyle = '#8b9099';
+            ctx.lineWidth = 5;
+            ctx.beginPath();
+            ctx.moveTo(s * 30, -12);
+            ctx.lineTo(s * 52, 26);
+            ctx.moveTo(s * 16, 14);
+            ctx.lineTo(s * 46, 26);
+            ctx.stroke();
+            ctx.strokeStyle = '#c9ced6';
+            ctx.lineWidth = 1.8;
+            ctx.beginPath();
+            ctx.moveTo(s * 30, -12);
+            ctx.lineTo(s * 52, 26);
+            ctx.stroke();
+            ctx.lineCap = 'butt';
+            ctx.fillStyle = '#5e646d';
+            ctx.beginPath();
+            ctx.ellipse(s * 52, 28, 9, 4, 0, 0, TAU);
+            ctx.fill();
+        }
+        // 下降级：八边形平台 + 金箔隔热层
+        const dg = ctx.createLinearGradient(0, -22, 0, 16);
+        dg.addColorStop(0, '#e6c479');
+        dg.addColorStop(0.5, '#c79a4e');
+        dg.addColorStop(1, '#8a6a2f');
+        ctx.fillStyle = dg;
+        ctx.beginPath();
+        ctx.moveTo(-40, -8); ctx.lineTo(-28, -20); ctx.lineTo(28, -20); ctx.lineTo(40, -8);
+        ctx.lineTo(40, 8); ctx.lineTo(28, 16); ctx.lineTo(-28, 16); ctx.lineTo(-40, 8);
+        ctx.closePath();
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(60,40,10,0.5)';
+        ctx.lineWidth = 1.4;
+        ctx.stroke();
+        // 隔热层的褶皱
+        ctx.strokeStyle = 'rgba(255,236,180,0.45)';
+        ctx.lineWidth = 1.1;
+        for (let i = -3; i <= 3; i++) {
+            ctx.beginPath();
+            ctx.moveTo(i * 11, -19); ctx.lineTo(i * 12.5, 15);
+            ctx.stroke();
+        }
+        // 发动机喷口
+        ctx.fillStyle = '#4c525b';
+        for (let i = -1; i <= 1; i += 2) {
+            ctx.beginPath();
+            ctx.moveTo(i * 12 - 8, 14); ctx.lineTo(i * 12 + 8, 14);
+            ctx.lineTo(i * 12 + 5, 24); ctx.lineTo(i * 12 - 5, 24);
+            ctx.closePath();
+            ctx.fill();
+        }
+        // 上升级：不规则多面舱体
+        const ug = ctx.createLinearGradient(-26, -76, 26, -26);
+        ug.addColorStop(0, '#f2f4f8');
+        ug.addColorStop(0.45, '#c3cad4');
+        ug.addColorStop(1, '#79828e');
+        ctx.fillStyle = ug;
+        ctx.beginPath();
+        ctx.moveTo(0, -82);
+        ctx.bezierCurveTo(20, -74, 26, -52, 25, -34);
+        ctx.lineTo(18, -22);
+        ctx.lineTo(-18, -22);
+        ctx.lineTo(-25, -34);
+        ctx.bezierCurveTo(-26, -52, -20, -74, 0, -82);
+        ctx.closePath();
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(24,32,48,0.5)';
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+        // 舷窗
+        ctx.fillStyle = '#1b2430';
+        ctx.beginPath();
+        ctx.ellipse(0, -56, 10, 7.5, 0, 0, TAU);
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(200,225,255,0.7)';
+        ctx.lineWidth = 1.4;
+        ctx.stroke();
+        ctx.fillStyle = 'rgba(255,255,255,0.45)';
+        ctx.beginPath();
+        ctx.ellipse(-3.5, -58.5, 3.4, 2.2, -0.4, 0, TAU);
+        ctx.fill();
+        // 碟形天线
+        ctx.strokeStyle = '#9aa1ab';
+        ctx.lineWidth = 2.6;
+        ctx.beginPath();
+        ctx.moveTo(0, -82); ctx.lineTo(6, -96);
+        ctx.stroke();
+        ctx.fillStyle = '#dfe4ea';
+        ctx.beginPath();
+        ctx.ellipse(8, -99, 15, 5.5, -0.42, 0, TAU);
+        ctx.fill();
+        ctx.strokeStyle = 'rgba(60,70,86,0.55)';
+        ctx.lineWidth = 1.2;
+        ctx.stroke();
+        // 爬梯
+        ctx.strokeStyle = '#aab0b8';
+        ctx.lineWidth = 1.6;
+        ctx.beginPath();
+        ctx.moveTo(-14, -26); ctx.lineTo(-30, 18);
+        ctx.moveTo(-6, -26); ctx.lineTo(-22, 18);
+        ctx.stroke();
+        // 航行灯
+        const on = (t % 1.2) < 0.65;
+        ctx.fillStyle = 'rgba(255,140,120,' + (on ? 0.95 : 0.28) + ')';
+        ctx.beginPath();
+        ctx.arc(-38, -12, 3.2, 0, TAU);
+        ctx.fill();
+        ctx.fillStyle = 'rgba(140,255,190,' + (on ? 0.3 : 0.9) + ')';
+        ctx.beginPath();
+        ctx.arc(38, -12, 3.2, 0, TAU);
+        ctx.fill();
+        // 舱底的柔光
+        const gg = ctx.createRadialGradient(0, 10, 2, 0, 12, 44);
+        gg.addColorStop(0, hexA('#bfe6ff', 0.18 * pulse));
+        gg.addColorStop(1, hexA('#bfe6ff', 0));
+        ctx.fillStyle = gg;
+        ctx.beginPath();
+        ctx.ellipse(0, 12, 44, 20, 0, 0, TAU);
+        ctx.fill();
+        ctx.restore();
+    }
+    function drawMoonShip(wx, wy, t, alpha) {
+        const x = scrX(wx), y = scrY(wy);
+        const m = 260 / viewZoom;
+        if (x < -m || x > W + m || y < -m || y > PLAY_H + m) return;
+        ctx.save();
+        ctx.globalAlpha = alpha === undefined ? 1 : alpha;
+        drawMoonShipAt(x, y, t, 0);
+        ctx.restore();
+    }
+
     // ==================== 月球：登录器遗址 ====================
     // 正面唯一的地面建筑：早已废弃的登月舱残骸，周围是被砸出的一片月壤
     function drawMoonLander(wx, wy, t) {
@@ -8459,20 +8867,26 @@ function bossLevelNeed() { return BOSS_LEVEL_BASE + world.bossKills; }
         ctx.fillText('月球登录器遗址', x, y - 168);
         setFont(11, 'normal');
         ctx.fillStyle = 'rgba(210,218,236,0.6)';
-        ctx.fillText('走出任意一条边界即抵达月球背面', x, y - 150);
+        ctx.fillText('走到任意一条边界即抵达月球背面', x, y - 150);
         ctx.restore();
     }
 
     // ==================== 地球：十二柱星环 ====================
-    // 十二根粗罗马石柱按钟表位围成一圈，3 / 6 / 9 / 12 点四个方位留空当作出入口；
-    // 其余八个方位自 7 点钟（水星）起顺时针排给另外八颗行星。
+    // 十二根粗罗马石柱按钟表位围成一圈，3 / 6 / 12 点三个方位留空当作出入口；
+    // 8 个方位自 7 点钟（水星）起顺时针排给另外八颗行星，9 点钟归月球。
     const COLONNADE_HOURS = [7, 8, 10, 11, 1, 2, 4, 5];
+    // 月球不是行星，却也有自己的宝石与 BOSS：它陈列在 9 点钟那根柱子上
+    const MOON_ID = 'moon';
+    const COL_MOON_HOUR = 9;
     // 上下左右四个空位：石柱本身和其它八根完全一样，只是没有对应的行星，陈列文字一律写 XX
     const COL_SEAT_ID = 'seat';
     const COL_SEAT = { id: COL_SEAT_ID, name: 'XX', colA: '#a9b8cf' };
-    const COL_GEM_PORTAL = 8;      // 八颗全齐，火箭上方开启通往月球的传送门
-    // 传送门与光柱的公共落点：悬在火箭正上方约一个火箭的高度（火箭全长约 210px）
+    const COL_GEM_PORTAL = 8;      // 八颗行星宝石全齐：月球登录飞船降临地球
+    const COL_GEM_ALL = 9;         // 再加上月球宝石，一共九颗光柱
+    // 光柱与传送门的公共落点：悬在火箭正上方约一个火箭的高度（火箭全长约 210px）
     const COL_PORTAL_LIFT = 212;
+    // 从月球归来的飞船停在光柱落点以北这么远：十二柱区域上方的空地，与传送门同屏但不重叠
+    const COL_SHIP_BACK = 236;
     // 石柱围成的扁椭圆：长径 : 短径 ≈ 1120 : 630，整圈以火箭（飞船落点）为中心
     // 横向按「降落 / 起飞拉远到最小视角时，左右两端刚好进画」来定，见 LAUNCH_ZOOM_MIN
     // 纵向受取景高度卡死：1/5/7/11 点那四根柱子的柱脚必须留在画面内，短径再大就看不见了
@@ -9292,6 +9706,15 @@ function drawColonnadeWeeds() {
     function colPortalSpot() {
         return { x: world.ring.x, y: wrapVal(world.ring.y - COL_PORTAL_LIFT, MAP_H) };
     }
+    // 月球登录飞船的停放点：从月球归来后它落在十二柱区域上方的空地上，
+    // 正好在光柱落点（传送门）的北边，两者同屏但互不遮挡
+    function colMoonShipSpot() {
+        const s = colPortalSpot();
+        return {
+            x: s.x,
+            y: wrapVal(save.moonShip ? s.y - COL_SHIP_BACK : s.y, MAP_H)
+        };
+    }
     function buildEarthLayout() {
         const cx = MAP_W * 0.5, cy = MAP_H * 0.62;
         // 补给宇宙航天飞船：停放在火箭的右下方，与火箭保持一段距离
@@ -9313,10 +9736,13 @@ function drawColonnadeWeeds() {
             const idx = COLONNADE_HOURS.indexOf(h);
             world.colonnade.push({
                 hour: h, x: x, y: y, seed: h * 1.37,
-                id: idx >= 0 ? targets[idx].id : COL_SEAT_ID
+                id: h === COL_MOON_HOUR ? MOON_ID : (idx >= 0 ? targets[idx].id : COL_SEAT_ID)
             });
         }
-        world.portal = gemTotal() >= COL_GEM_PORTAL ? colPortalSpot() : null;
+        // 月球登录飞船：八颗行星宝石集齐后出现，去了月球并打过 BOSS 回来就常驻在上方的空地上
+        world.moonShip = (gemTotal() >= COL_GEM_PORTAL || save.moonShip) ? colMoonShipSpot() : null;
+        // 传送门：八颗宝石只是把飞船叫来，月球宝石归位（第九颗）之后它才真正显形
+        world.portal = save.gems.moon > 0 ? colPortalSpot() : null;
         buildNoTreeZones(cx, cy);
         // 地球是一座岛：沙滩 / 海浪 / 贝壳蟹虾 / 漂流瓶
         world.island = true;
@@ -9451,8 +9877,8 @@ function drawColonnadeWeeds() {
         const t = world.t;
         // 空位不是行星，单独走 COL_SEAT，样式与其它石柱一致，只是没有宝石与战绩
         const seat = col.id === COL_SEAT_ID;
-        const pl = col.id ? (seat ? COL_SEAT : PLANET_BY_ID[col.id]) : null;
-        const rec = (col.id && !seat) ? save.planets[col.id] : null;
+        const pl = col.id ? (seat ? COL_SEAT : planetDef(col.id)) : null;
+        const rec = (col.id && !seat && save.planets[col.id]) ? save.planets[col.id] : null;
         const hasGem = !!(pl && !seat && save.gems[pl.id] > 0);
         const cleared = !!(rec && rec.clears > 0);
         const R = COL_R;
@@ -9843,6 +10269,7 @@ ctx.save();
     function drawEarthHub() {
         const p = world.player;
         // 基地广场：不再铺半透明的地面衬底，只留标题文字；累计分数 / 累计击杀已移除
+        // 标题摆在火箭以南：原先挂在火箭正上方，正好压在火箭头顶那扇「？？？」的门上
         const fade = hubTitleAlpha();
         if (fade > 0) {
             const cx = scrX(MAP_W * 0.5), cy = scrY(MAP_H * 0.62);
@@ -9852,7 +10279,7 @@ ctx.save();
             ctx.textBaseline = 'middle';
             setFont(20, 'bold');
             ctx.fillStyle = 'rgba(235,245,255,0.92)';
-            ctx.fillText('地球 · 家园基地', cx, cy - 210);
+            ctx.fillText('地球 · 家园基地', cx, cy + 232);
             ctx.restore();
         }
         // 补给航天飞船（与石柱一样进入按 y 排序的地面景物队列）
@@ -9862,6 +10289,15 @@ ctx.save();
                 wy: sp.y, draw: (function (sx, sy) {
                     return function () { drawSupplyShip(sx, sy, world.t, 1); };
                 })(scrX(sp.x), scrY(sp.y))
+            });
+        }
+        // 月球登录飞船：同样进队列，从月球降落的着陆动画期间由 drawLanding 接管
+        if (world.moonShip && !world.landing) {
+            const ms = world.moonShip;
+            groundProps.push({
+                wy: ms.y, draw: (function (mx, my) {
+                    return function () { drawMoonShip(mx, my, world.t, 1); };
+                })(ms.x, ms.y)
             });
         }
         // 十二根石柱同样进入队列，保证前后遮挡
@@ -9876,6 +10312,8 @@ ctx.save();
             }
         }
         // 石柱铺成的地面刻线 + 宝石光柱 + 火箭头顶的传送门（都画在人物之下）
+        // 月球登录飞船的铭牌
+        if (world.moonShip) drawMoonShipPlaque(world.moonShip);
         // 漂流瓶混进地面道具按 y 绘制，走近时提示按 J/A 阅读
         if (world.bottles) {
             for (let i = 0; i < world.bottles.length; i++) {
@@ -9909,20 +10347,21 @@ ctx.save();
         ctx.restore();
     }
     // 每归位一颗宝石，那根石柱上的宝石就朝火箭头顶的传送门落点射出一道该宝石颜色的半透明光柱
-    // 亮度跟着收集进度走：只有一颗时光柱浅得几乎看不见，每多一颗加厚加亮一分，八颗集齐时正好是原来的亮度
+    // 亮度跟着收集进度走：只有一颗时光柱浅得几乎看不见，每多一颗加厚加亮一分，
+    // 八颗行星宝石时是「月球登录飞船已就位」，第九颗（月球宝石）归位后光柱最盛、传送门随之显形
     function drawColonnadeBeams() {
         if (!world.ring) return;
-        const got = gemTotal();
+        const got = gemTotalAll();
         if (got < 1) return;
-        // 一颗 → 0.26（特别浅），八颗 → 1（与原先「集齐才放光柱」的亮度一致）
-        const vis = 0.16 + 0.84 * (got / COL_GEM_PORTAL);
+        const vis = 0.16 + 0.84 * (got / COL_GEM_ALL);
         const spot = colPortalSpot();
         const cx = scrX(spot.x), cy = scrY(spot.y);
         for (let i = 0; i < world.colonnade.length; i++) {
             const col = world.colonnade[i];
             if (col.id === COL_SEAT_ID) continue;   // 空位没有宝石，也就没有光柱
             if (!col.id || !save.gems[col.id]) continue;
-            const pl = PLANET_BY_ID[col.id];
+            const pl = planetDef(col.id);
+            if (!pl) continue;
             const a = -Math.PI / 2 + col.hour * Math.PI / 6;
             const bx = scrX(col.x);
             const by = scrY(col.y) - COL_GEM_Y;
@@ -9959,7 +10398,7 @@ ctx.save();
             ctx.restore();
         }
     }
-    // 八颗宝石集齐：火箭头顶打开通往月球正面的传送门
+    // 月球宝石归位：光柱落点上显形的未知之门
     function drawColonnadePortal() {
         if (!world.portal) return;
         const x = scrX(world.portal.x), y = scrY(world.portal.y);
@@ -10008,12 +10447,38 @@ ctx.save();
         ctx.stroke();
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        setFont(15, 'bold');
+        setFont(18, 'bold');
         ctx.fillStyle = '#e6dcff';
-        ctx.fillText('月球传送门', x, y - R * 0.62 - 24);
+        ctx.fillText('？？？', x, y - R * 0.62 - 24);
         setFont(12, 'normal');
         ctx.fillStyle = 'rgba(220,210,255,0.85)';
-        ctx.fillText('按 ' + hintConfirm() + ' 前往月球正面', x, y + R * 0.62 + 22);
+        ctx.fillText('按 ' + hintConfirm() + ' 进入', x, y + R * 0.62 + 22);
+        ctx.restore();
+    }
+    // 月球登录飞船的铭牌：站在附近才显示登船提示
+    function drawMoonShipPlaque(ms) {
+        const x = scrX(ms.x), y = scrY(ms.y);
+        const m = 260 / viewZoom;
+        if (x < -m || x > W + m || y < -m || y > PLAY_H + m) return;
+        const p = world.player;
+        const near = Math.hypot(dX(ms.x, p.x), dY(ms.y, p.y)) < 150;
+        ctx.save();
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        setFont(16, 'bold');
+        ctx.fillStyle = '#cfeeff';
+        ctx.fillText('月球登录飞船', x, y - 108);
+        if (near) {
+            setFont(14, 'bold');
+            ctx.fillStyle = 'rgba(0,0,0,0.7)';
+            ctx.fillText('按 ' + hintConfirm() + ' 登船前往月球正面', x + 1, y - 88 + 1);
+            ctx.fillStyle = '#ffd24a';
+            ctx.fillText('按 ' + hintConfirm() + ' 登船前往月球正面', x, y - 88);
+        } else {
+            setFont(12, 'normal');
+            ctx.fillStyle = 'rgba(200,220,245,0.55)';
+            ctx.fillText('停泊中 · 只往返月球正面', x, y - 88);
+        }
         ctx.restore();
     }
     // 走近石柱时说明这根柱子的来历
@@ -10025,8 +10490,9 @@ ctx.save();
             const col = world.colonnade[i];
             if (Math.hypot(dX(col.x, p.x), dY(col.y, p.y)) > 130) continue;
             if (!col.id || col.id === COL_SEAT_ID) return;
-            const pl = PLANET_BY_ID[col.id];
-            const rec = save.planets[col.id];
+            const pl = planetDef(col.id);
+            if (!pl) return;
+            const rec = save.planets[col.id] || { clears: 0, bestScore: 0 };
             const gem = save.gems[col.id] > 0;
             const lines = [
                 pl.name,
@@ -10102,9 +10568,10 @@ ctx.save();
         ctx.fillText(planet.name, 20, PLAY_H + 20);
         setFont(12, 'normal');
         ctx.fillStyle = 'rgba(190,210,240,0.75)';
-        if (world.moonSide === 'near') ctx.fillText('无战斗 · 走出任意边界即抵达背面', 20, PLAY_H + 41);
+        if (world.moonSide === 'near') ctx.fillText('无战斗 · 走到任意边界即抵达背面', 20, PLAY_H + 41);
+        else if (world.planet.id === MYSTERY_ID) ctx.fillText('无战斗 · 走到门里即可返回地球', 20, PLAY_H + 41);
         else if (planet.home) ctx.fillText('家园基地 · 十二柱星环', 20, PLAY_H + 41);
-        else if (world.bossDefeated) ctx.fillText('BOSS 已击败 · 返回火箭', 20, PLAY_H + 41);
+        else if (world.bossDefeated) ctx.fillText('BOSS 已击败 · 登上火箭返回地球', 20, PLAY_H + 41);
         else if (world.moonSide === 'far') ctx.fillText('BOSS 尚未击败 · 无法离开', 20, PLAY_H + 41);
         else ctx.fillText('BOSS：' + planet.boss + '　技能：' + planet.abilityName, 20, PLAY_H + 41);
         ctx.restore();
@@ -10311,7 +10778,147 @@ function drawDigPrompt() {
     ctx.restore();
 }
 
-function drawPlay() {
+// ==================== 神秘地图 ====================
+    // 紫色虚空：脚下是一层浮着微光的黑石，四周飘着不落地的碎石与歪斜的石柱，
+    // 中央立着唯一一座通往地球的传送门，地面上写着这一版的最后一句话
+    const MYSTERY_FOG = [];
+    for (let i = 0; i < 26; i++) {
+        MYSTERY_FOG.push({
+            x: hash2(i * 3.1, 1.7) * MYSTERY_MAP_W, y: hash2(i * 7.7, 5.3) * MYSTERY_MAP_H,
+            r: 90 + hash2(i * 1.9, 2.7) * 200, ph: hash2(i * 5.3, 3.1) * TAU
+        });
+    }
+    function drawMysteryScenery() {
+        const t = world.t;
+        // 浮在地面上的紫色雾团
+        ctx.save();
+        ctx.globalCompositeOperation = 'lighter';
+        for (let i = 0; i < MYSTERY_FOG.length; i++) {
+            const f = MYSTERY_FOG[i];
+            const x = scrX(f.x), y = scrY(f.y);
+            if (x < -f.r || x > W + f.r || y < -f.r || y > PLAY_H + f.r) continue;
+            const puls = 0.6 + 0.4 * Math.sin(t * 0.8 + f.ph);
+            const g = ctx.createRadialGradient(x, y, 2, x, y, f.r);
+            g.addColorStop(0, 'rgba(150,110,255,' + (0.09 * puls) + ')');
+            g.addColorStop(1, 'rgba(110,70,220,0)');
+            ctx.fillStyle = g;
+            ctx.beginPath();
+            ctx.ellipse(x, y, f.r, f.r * 0.6, 0, 0, TAU);
+            ctx.fill();
+        }
+        ctx.restore();
+        // 缓慢起伏的碎石
+        for (let i = 0; i < 14; i++) {
+            const bx = 120 + hash2(i * 4.3, 2.2) * (MYSTERY_MAP_W - 240);
+            const by = 120 + hash2(i * 8.9, 6.6) * (MYSTERY_MAP_H - 240);
+            const x = scrX(bx), y = scrY(by);
+            if (x < -60 || x > W + 60 || y < -60 || y > PLAY_H + 60) continue;
+            const lift = Math.sin(t * 0.6 + i) * 8;
+            const s = 0.7 + hash2(i * 2.7, 9.1) * 0.7;
+            ctx.save();
+            ctx.translate(x, y + lift);
+            ctx.rotate(i * 0.7 + Math.sin(t * 0.2 + i) * 0.2);
+            ctx.scale(s, s * 0.8);
+            ctx.fillStyle = 'rgba(0,0,0,0.4)';
+            ctx.beginPath(); ctx.ellipse(0, 22, 22, 7, 0, 0, TAU); ctx.fill();
+            const rg = ctx.createLinearGradient(-16, -18, 16, 14);
+            rg.addColorStop(0, '#4a3d6b');
+            rg.addColorStop(1, '#241c3a');
+            ctx.fillStyle = rg;
+            ctx.beginPath();
+            ctx.moveTo(-16, 6); ctx.lineTo(-9, -14); ctx.lineTo(8, -18);
+            ctx.lineTo(17, -2); ctx.lineTo(11, 10); ctx.lineTo(-6, 13);
+            ctx.closePath();
+            ctx.fill();
+            ctx.strokeStyle = 'rgba(201,179,255,0.35)';
+            ctx.lineWidth = 1.2;
+            ctx.stroke();
+            ctx.restore();
+        }
+        // 四周歪斜的石柱：越高越淡，像从雾里长出来
+        for (let i = 0; i < 12; i++) {
+            const a = i / 12 * TAU;
+            const bx = MAP_W * 0.5 + Math.cos(a) * MYSTERY_MAP_W * 0.36;
+            const by = MAP_H * 0.5 + Math.sin(a) * MYSTERY_MAP_H * 0.33;
+            const x = scrX(bx), y = scrY(by);
+            if (x < -120 || x > W + 120 || y < -180 || y > PLAY_H + 120) continue;
+            const h = 90 + (i % 4) * 42;
+            ctx.save();
+            ctx.translate(x, y);
+            ctx.rotate(Math.sin(i * 2.3) * 0.12);
+            const cg = ctx.createLinearGradient(-16, -h, 16, 0);
+            cg.addColorStop(0, '#584a7d');
+            cg.addColorStop(1, '#241c3a');
+            ctx.fillStyle = cg;
+            ctx.beginPath();
+            ctx.moveTo(-15, 0); ctx.lineTo(-9, -h); ctx.lineTo(9, -h); ctx.lineTo(15, 0);
+            ctx.closePath();
+            ctx.fill();
+            ctx.fillStyle = 'rgba(201,179,255,0.5)';
+            ctx.fillRect(-9, -h - 4, 18, 5);
+            ctx.restore();
+        }
+        // 地面上的那句话：压扁成躺在地上的样子
+        ctx.save();
+        ctx.translate(scrX(MAP_W * 0.5), scrY(MAP_H * 0.5 + 300));
+        ctx.scale(1, 0.52);
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.globalAlpha = 0.5 + 0.12 * Math.sin(t * 1.2);
+        setFont(40, 'bold');
+        ctx.fillStyle = 'rgba(0,0,0,0.55)';
+        ctx.fillText(MYSTERY_TEXT, 2, 3);
+        ctx.fillStyle = 'rgba(214,198,255,0.92)';
+        ctx.fillText(MYSTERY_TEXT, 0, 0);
+        ctx.restore();
+        drawHomePortal();
+    }
+    // 神秘地图里回地球的传送门：与地球上那扇同一套画法，只是配色更冷
+    function drawHomePortal() {
+        const hp = world.homePortal;
+        if (!hp) return;
+        const x = scrX(hp.x), y = scrY(hp.y);
+        const t = world.t;
+        const open = clamp((t % 3) / 0.9, 0, 1);
+        const R = 72 * (0.82 + 0.18 * open);
+        ctx.save();
+        ctx.globalCompositeOperation = 'lighter';
+        const fl = ctx.createRadialGradient(x, y, 4, x, y, R * 1.6);
+        fl.addColorStop(0, 'rgba(150,200,255,0.4)');
+        fl.addColorStop(0.5, 'rgba(110,150,255,0.15)');
+        fl.addColorStop(1, 'rgba(90,120,240,0)');
+        ctx.fillStyle = fl;
+        ctx.beginPath(); ctx.ellipse(x, y, R * 1.6, R, 0, 0, TAU); ctx.fill();
+        for (let i = 0; i < 5; i++) {
+            const ph = (t * 0.5 + i / 5) % 1;
+            const rr = R * (0.35 + 0.85 * ph);
+            ctx.strokeStyle = 'rgba(170,205,255,' + (0.4 * (1 - ph)) + ')';
+            ctx.lineWidth = 4 * (1 - ph) + 1;
+            ctx.beginPath(); ctx.ellipse(x, y, rr, rr * 0.92, 0, 0, TAU); ctx.stroke();
+        }
+        const cg = ctx.createRadialGradient(x, y, 2, x, y, R * 0.55);
+        cg.addColorStop(0, 'rgba(255,255,255,0.8)');
+        cg.addColorStop(0.4, 'rgba(150,190,255,0.34)');
+        cg.addColorStop(1, 'rgba(110,140,255,0)');
+        ctx.fillStyle = cg;
+        ctx.beginPath(); ctx.ellipse(x, y, R * 0.55, R * 0.5, 0, 0, TAU); ctx.fill();
+        ctx.restore();
+        ctx.save();
+        ctx.strokeStyle = 'rgba(180,210,255,0.75)';
+        ctx.lineWidth = 3;
+        ctx.beginPath(); ctx.ellipse(x, y, R, R * 0.6, 0, 0, TAU); ctx.stroke();
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        setFont(16, 'bold');
+        ctx.fillStyle = '#dce8ff';
+        ctx.fillText('回到地球', x, y - R * 0.6 - 22);
+        setFont(12, 'normal');
+        ctx.fillStyle = 'rgba(210,225,255,0.8)';
+        ctx.fillText('按 ' + hintConfirm() + ' 返回十二柱星环', x, y + R * 0.6 + 20);
+        ctx.restore();
+    }
+
+    function drawPlay() {
         if (!world) return;
         const p = world.player;
         // 升空拉远 / 着陆推近：整幅场景的镜头缩放
@@ -10329,6 +10936,7 @@ function drawPlay() {
         drawGround();
         drawDigPits();            // 坑压在地面上，但压在所有景物与人物之下
         if (world.planet.home) drawEarthHub();
+        if (world.planet.id === MYSTERY_ID) drawMysteryScenery();
         if (world.moonSide === 'near' && world.lander) {
             // 月球正面的登录器遗址进入同一套按 y 排序的队列
             groundProps.push({
@@ -10345,7 +10953,9 @@ function drawPlay() {
         } else if (world.landing) {
             groundProps.push({ wy: world.landing.y, draw: drawLanding });
         } else if (world.launch) {
-            groundProps.push({ wy: world.rocket.y, draw: drawLaunchRocket });
+            groundProps.push({ wy: world.launch.at.y, draw: drawLaunchRocket });
+        } else if (world.planet.id === MYSTERY_ID) {
+            // 神秘地图里没有火箭，只有回地球的门
         } else {
             const rk = world.rocket, rsx = scrX(rk.x), rsy = scrY(rk.y);
             groundProps.push({
@@ -10423,7 +11033,9 @@ function drawPlay() {
                 }
             }
             if ((world.planet.home || world.bossDefeated) && world.moonSide !== 'near') drawDirectionMarker(world.rocket.x, world.rocket.y, '#7cf07c', '火箭');
-            if (world.portal) drawDirectionMarker(world.portal.x, world.portal.y, '#c9b3ff', '月球传送门');
+            if (world.portal) drawDirectionMarker(world.portal.x, world.portal.y, '#c9b3ff', '？？？');
+            if (world.moonShip && !world.launch) drawDirectionMarker(world.moonShip.x, world.moonShip.y, '#bfe6ff', '月球登录飞船');
+            if (world.homePortal) drawDirectionMarker(world.homePortal.x, world.homePortal.y, '#dce8ff', '回到地球');
             if (world.lander) drawDirectionMarker(world.lander.x, world.lander.y, '#dfe6ff', '登录器遗址');
             if (world.beacon && !world.beacon.held) drawDirectionMarker(world.beacon.x, world.beacon.y, '#ffe066', '信标');
             if (world.found) drawDirectionMarker(world.found.x, world.found.y, world.found.kind === 'gem' ? '#bfe8ff' : '#ffd166', '战利品');
@@ -10520,6 +11132,11 @@ function drawPlay() {
         const t = L.t;
         const flame = t < LAND_DESCENT ? 1 : 0.6;
         const RS = ROCKET_SCALE;
+        // 月球登录飞船的着陆：与火箭共用同一套镜头与时序，只是画的是登月器
+        if (L.moon) {
+            drawMoonShipAt(gx, L.drawY, t, flame * (t < LAND_DESCENT ? 1 : 0.7));
+            return;
+        }
         drawRocketAt(gx, L.drawY, world.rocket.angle, t, flame * (t < LAND_DESCENT ? 1 : 0.7), RS);
         // 舱门：LAND_EXIT 起沿舱壁向上滑开，露出暖色舱内
         const dk = t > LAND_EXIT ? clamp((t - LAND_EXIT) / 0.42, 0, 1) : 0;
@@ -10560,7 +11177,7 @@ function drawPlay() {
         ctx.fillStyle = '#ffffff';
         ctx.shadowColor = 'rgba(0,0,0,0.8)';
         ctx.shadowBlur = 8;
-        ctx.fillText(world.planet.name + ' 着陆中', W / 2, 70);
+        ctx.fillText(L.moon ? '月球登录飞船 着陆中' : (world.planet.name + ' 着陆中'), W / 2, 70);
         setFont(14, 'normal');
         ctx.fillStyle = 'rgba(230,240,255,0.85)';
         ctx.fillText(t < LAND_DESCENT ? '进入大气层 · 自动着陆' :
@@ -10577,23 +11194,29 @@ function drawPlay() {
 
 // 取消：住船引擎——在真实场景内播放，与着陆对称，保留原游戏画面
     const LAUNCH_BOARD = 0.55, LAUNCH_RISE = 2.9, LAUNCH_DUR = 3.3;
-    function launchSequence() {
+    // mode: 'earth' 地球火箭 → 太阳系（默认）；'ship' 月球登录飞船 → 月球正面；'home' 月球背面火箭 → 地球
+    function launchSequence(mode) {
         if (!world) return;
         // 记下点击瞬间的镜头位置，用于平滑过渡，避免画面跳变
-        world.launch = { t: 0, dur: LAUNCH_DUR, camFrom: { x: world.cam.x, y: world.cam.y } };
+        world.launch = {
+            t: 0, dur: LAUNCH_DUR, mode: mode || 'earth',
+            camFrom: { x: world.cam.x, y: world.cam.y },
+            // 月球登录飞船起飞时镜头要对着它自己，而不是火箭
+            at: world.moonShip && mode === 'ship' ? { x: world.moonShip.x, y: world.moonShip.y } : { x: world.rocket.x, y: world.rocket.y }
+        };
         sfx('launch');
     }
     function updateLaunch(dt) {
         const L = world.launch;
         L.t += dt;
-        // 镜头由人物平滑移到火箭，而不是瞬间跳转
+        // 镜头由人物平滑移到起飞的那台机器，而不是瞬间跳转
         const ce = easeInOut(clamp(L.t / LAUNCH_BOARD, 0, 1));
-        world.cam.x = lerp(L.camFrom.x, world.rocket.x, ce);
-        world.cam.y = lerp(L.camFrom.y, world.rocket.y, ce);
+        world.cam.x = lerp(L.camFrom.x, L.at.x, ce);
+        world.cam.y = lerp(L.camFrom.y, L.at.y, ce);
         // 尾气与烟尘（升空变慢，密度略提高以保持尾焰连贯）
         if (L.t > LAUNCH_BOARD * 0.8 && Math.random() < dt * 42) {
             world.fx.push({
-                kind: 'spark', x: world.rocket.x + rand(-28, 28), y: world.rocket.y + rand(40, 74),
+                kind: 'spark', x: L.at.x + rand(-28, 28), y: L.at.y + rand(40, 74),
                 life: rand(0.35, 0.9), max: 0.9, r: rand(4, 12), col: '#ffd08a'
             });
         }
@@ -10608,6 +11231,17 @@ function drawPlay() {
         }
         if (L.t < L.dur) return;
         world.launch = null;
+        // 月球登录飞船：起飞后只到月球正面
+        if (L.mode === 'ship') {
+            recordRun(false);
+            startMoonSide('near');
+            return;
+        }
+        // 月球背面打完 BOSS：升空后直接返回地球，并播放月球登录飞船的着陆动画
+        if (L.mode === 'home') {
+            startMoonHome();
+            return;
+        }
         scene = 'space';
         sceneT = 0;
         // 月球不在太阳系轨道上：离开月球时飞船停在太阳旁边
@@ -10628,7 +11262,7 @@ function drawPlay() {
     function drawLaunchRocket() {
         const L = world.launch;
         const t = L.t;
-        const gx = scrX(world.rocket.x), gy = scrY(world.rocket.y);
+        const gx = scrX(L.at.x), gy = scrY(L.at.y);
         let rise = 0, flame = 0;
         if (t < LAUNCH_BOARD) {
             rise = 0; flame = 0;
@@ -10639,9 +11273,10 @@ function drawPlay() {
             rise = 1;
             flame = 0;
         }
-        // 点火到升空全程保持地面上的火箭尺寸，不再缩小
+        // 点火到升空全程保持地面上的尺寸，不再缩小
         const shake = t > LAUNCH_BOARD && t < LAUNCH_RISE ? (Math.random() - 0.5) * 4 : 0;
-        drawRocketAt(gx + shake, gy - rise * LAUNCH_TRAVEL, world.rocket.angle, t, flame, ROCKET_SCALE);
+        if (L.mode === 'ship') drawMoonShipAt(gx + shake, gy - rise * LAUNCH_TRAVEL, t, flame);
+        else drawRocketAt(gx + shake, gy - rise * LAUNCH_TRAVEL, world.rocket.angle, t, flame, ROCKET_SCALE);
         for (let i = 0; i < world.fx.length; i++) {
             const f = world.fx[i];
             const x = scrX(f.x), y = scrY(f.y) - rise * LAUNCH_TRAVEL;
@@ -10658,6 +11293,9 @@ function drawPlay() {
     // 否则 fillRect 只会盖住被拉小的中间区域，四周会露出黑边。
     function drawLaunchOverlay() {
         const t = world.launch.t;
+        const mode = world.launch.mode;
+        const backText = mode === 'ship' ? '前往月球正面' : (mode === 'home' ? '返回地球' : '返回太阳系轨道');
+        const title = mode === 'ship' ? '月球登录飞船 起飞' : (mode === 'home' ? '返航' : '升空中');
         ctx.save();
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
@@ -10665,7 +11303,7 @@ function drawPlay() {
         ctx.fillStyle = '#eaf4ff';
         ctx.shadowColor = 'rgba(0,0,0,0.8)';
         ctx.shadowBlur = 8;
-        ctx.fillText('升空中', W / 2, 70);
+        ctx.fillText(title, W / 2, 70);
         ctx.restore();
         const a = launchDepart(t);
         if (a <= 0) return;
@@ -10678,7 +11316,7 @@ function drawPlay() {
             ctx.textBaseline = 'middle';
             setFont(26, 'bold');
             ctx.fillStyle = '#eaf4ff';
-            ctx.fillText('返回太阳系轨道', W / 2, H / 2);
+            ctx.fillText(backText, W / 2, H / 2);
             ctx.restore();
         }
     }
