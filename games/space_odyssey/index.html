@@ -105,7 +105,7 @@
 (function() {
     'use strict';
 
-    const VERSION = '20261017-0243';
+    const VERSION = '20261018-1726';
 
     const canvas = document.getElementById('gameCanvas');
     const ctx = canvas.getContext('2d');
@@ -7565,7 +7565,7 @@ function bossLevelNeed() { return BOSS_LEVEL_BASE + world.bossKills; }
         handleAction();
         // 拾取信标之后，按确认键尝试挖掘
         if (world.beacon && world.beacon.held) tryDig();
-        // 地球石柱阵中心的传送门：八颗行星宝石集齐后开启
+        // 地球火箭头顶的传送门：八颗行星宝石集齐后开启
         if (world.portal && Math.hypot(dX(world.portal.x, p.x), dY(world.portal.y, p.y)) < PORTAL_R) {
             enterMoonNear();
         }
@@ -8470,8 +8470,9 @@ function bossLevelNeed() { return BOSS_LEVEL_BASE + world.bossKills; }
     // 上下左右四个空位：石柱本身和其它八根完全一样，只是没有对应的行星，陈列文字一律写 XX
     const COL_SEAT_ID = 'seat';
     const COL_SEAT = { id: COL_SEAT_ID, name: 'XX', colA: '#a9b8cf' };
-    const COL_GEM_BEAM = 4;        // 集到这么多颗宝石就开始往外放光柱
-    const COL_GEM_PORTAL = 8;      // 八颗全齐，圈心开启通往月球的传送门
+    const COL_GEM_PORTAL = 8;      // 八颗全齐，火箭上方开启通往月球的传送门
+    // 传送门与光柱的公共落点：悬在火箭正上方约一个火箭的高度（火箭全长约 210px）
+    const COL_PORTAL_LIFT = 212;
     // 石柱围成的扁椭圆：长径 : 短径 ≈ 1120 : 630，整圈以火箭（飞船落点）为中心
     // 横向按「降落 / 起飞拉远到最小视角时，左右两端刚好进画」来定，见 LAUNCH_ZOOM_MIN
     // 纵向受取景高度卡死：1/5/7/11 点那四根柱子的柱脚必须留在画面内，短径再大就看不见了
@@ -9285,6 +9286,12 @@ function drawColonnadeWeeds() {
         for (const p of PLANETS) if (!p.home && save.gems[p.id] > 0) n++;
         return n;
     }
+    // 光柱与传送门的公共落点：火箭（圈心）正上方 COL_PORTAL_LIFT 处
+    // 传送门原先就落在圈心，和火箭落点重合，按确认键总是先被登船判定吃掉，永远进不去；
+    // 抬到火箭头顶之后，两者分开，火箭照常登船，人站到门下方即可传送
+    function colPortalSpot() {
+        return { x: world.ring.x, y: wrapVal(world.ring.y - COL_PORTAL_LIFT, MAP_H) };
+    }
     function buildEarthLayout() {
         const cx = MAP_W * 0.5, cy = MAP_H * 0.62;
         // 补给宇宙航天飞船：停放在火箭的右下方，与火箭保持一段距离
@@ -9292,7 +9299,7 @@ function drawColonnadeWeeds() {
             x: wrapVal(world.rocket.x + 276, MAP_W),
             y: wrapVal(world.rocket.y + 150, MAP_H)
         };
-        // 石柱阵以火箭为中心展开，圈心就是火箭落点，将来也是传送门的位置
+        // 石柱阵以火箭为中心展开，圈心就是火箭落点；传送门另开在火箭头顶（见 colPortalSpot）
         world.ring = {
             x: wrapVal(world.rocket.x, MAP_W), y: wrapVal(world.rocket.y, MAP_H),
             rX: COL_RING.rX, rY: COL_RING.rY
@@ -9309,7 +9316,7 @@ function drawColonnadeWeeds() {
                 id: idx >= 0 ? targets[idx].id : COL_SEAT_ID
             });
         }
-        world.portal = gemTotal() >= COL_GEM_PORTAL ? { x: world.ring.x, y: world.ring.y } : null;
+        world.portal = gemTotal() >= COL_GEM_PORTAL ? colPortalSpot() : null;
         buildNoTreeZones(cx, cy);
         // 地球是一座岛：沙滩 / 海浪 / 贝壳蟹虾 / 漂流瓶
         world.island = true;
@@ -9868,7 +9875,7 @@ ctx.save();
                 });
             }
         }
-        // 石柱铺成的地面刻线 + 宝石光柱 + 圈心传送门（都画在人物之下）
+        // 石柱铺成的地面刻线 + 宝石光柱 + 火箭头顶的传送门（都画在人物之下）
         // 漂流瓶混进地面道具按 y 绘制，走近时提示按 J/A 阅读
         if (world.bottles) {
             for (let i = 0; i < world.bottles.length; i++) {
@@ -9901,10 +9908,16 @@ ctx.save();
         ctx.stroke();
         ctx.restore();
     }
-    // 每凑够 4 颗宝石，一根石柱上的宝石就朝圈心射出一道该宝石颜色的半透明光柱
+    // 每归位一颗宝石，那根石柱上的宝石就朝火箭头顶的传送门落点射出一道该宝石颜色的半透明光柱
+    // 亮度跟着收集进度走：只有一颗时光柱浅得几乎看不见，每多一颗加厚加亮一分，八颗集齐时正好是原来的亮度
     function drawColonnadeBeams() {
-        if (!world.ring || gemTotal() < COL_GEM_BEAM) return;
-        const cx = scrX(world.ring.x), cy = scrY(world.ring.y);
+        if (!world.ring) return;
+        const got = gemTotal();
+        if (got < 1) return;
+        // 一颗 → 0.26（特别浅），八颗 → 1（与原先「集齐才放光柱」的亮度一致）
+        const vis = 0.16 + 0.84 * (got / COL_GEM_PORTAL);
+        const spot = colPortalSpot();
+        const cx = scrX(spot.x), cy = scrY(spot.y);
         for (let i = 0; i < world.colonnade.length; i++) {
             const col = world.colonnade[i];
             if (col.id === COL_SEAT_ID) continue;   // 空位没有宝石，也就没有光柱
@@ -9918,18 +9931,18 @@ ctx.save();
             ctx.save();
             ctx.globalCompositeOperation = 'lighter';
             const g = ctx.createLinearGradient(bx, by, cx, cy);
-            g.addColorStop(0, hexA(pl.colA, 0.34 * wob));
-            g.addColorStop(0.55, hexA(pl.colA, 0.17 * wob));
+            g.addColorStop(0, hexA(pl.colA, 0.34 * wob * vis));
+            g.addColorStop(0.55, hexA(pl.colA, 0.17 * wob * vis));
             g.addColorStop(1, hexA(pl.colA, 0));
             ctx.strokeStyle = g;
-            ctx.lineWidth = 13;
+            ctx.lineWidth = 13 * (0.45 + 0.55 * vis);
             ctx.lineCap = 'round';
             ctx.beginPath();
             ctx.moveTo(bx, by);
             ctx.lineTo(cx, cy);
             ctx.stroke();
-            ctx.strokeStyle = hexA(pl.colA, 0.3 * wob);
-            ctx.lineWidth = 3.5;
+            ctx.strokeStyle = hexA(pl.colA, 0.3 * wob * vis);
+            ctx.lineWidth = 3.5 * (0.5 + 0.5 * vis);
             ctx.beginPath();
             ctx.moveTo(bx, by);
             ctx.lineTo(cx, cy);
@@ -9937,7 +9950,7 @@ ctx.save();
             // 沿光柱往上跑的流光
             const tx = lerp(bx, cx, flow), ty = lerp(by, cy, flow);
             const tg = ctx.createRadialGradient(tx, ty, 0, tx, ty, 26);
-            tg.addColorStop(0, hexA(pl.colA, 0.55 * wob));
+            tg.addColorStop(0, hexA(pl.colA, 0.55 * wob * vis));
             tg.addColorStop(1, hexA(pl.colA, 0));
             ctx.fillStyle = tg;
             ctx.beginPath();
@@ -9946,7 +9959,7 @@ ctx.save();
             ctx.restore();
         }
     }
-    // 八颗宝石集齐：圈心打开通往月球正面的传送门
+    // 八颗宝石集齐：火箭头顶打开通往月球正面的传送门
     function drawColonnadePortal() {
         if (!world.portal) return;
         const x = scrX(world.portal.x), y = scrY(world.portal.y);
